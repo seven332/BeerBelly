@@ -16,12 +16,11 @@
 
 package com.hippo.beerbelly;
 
-import android.os.Looper;
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.util.Log;
 import android.util.LruCache;
 
-import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.IOException;
@@ -40,17 +39,11 @@ public abstract class BeerBelly<V> {
     private static final int STATE_DISK_CACHE_IN_USE = 1;
     private static final int STATE_DISK_CACHE_BUSY = 2;
 
-    private LruCache<String, V> mMemoryCache;
+    private MemoryCahce<V> mMemoryCache;
     private @Nullable DiskCache<V> mDiskCache;
 
     private final boolean mHasMemoryCache;
     private final boolean mHasDiskCache;
-
-    /**
-     * Used to temporarily pause the disk cache while scrolling
-     */
-    public boolean mPauseDiskAccess = false;
-    private final Object mPauseLock = new Object();
 
     private final Object mDiskCacheLock = new Object();
     private final Map<String, CounterLock> mDiskCacheLockMap = new HashMap<>();
@@ -86,7 +79,9 @@ public abstract class BeerBelly<V> {
 
     protected abstract int sizeOf(String key, V value);
 
-    protected abstract V read(InputStream is);
+    protected abstract void memoryEntryRemoved(boolean evicted, String key, V oldValue, V newValue);
+
+    protected abstract V read(InputStreamHelper ish);
 
     protected abstract boolean write(OutputStream os, V value);
 
@@ -114,7 +109,7 @@ public abstract class BeerBelly<V> {
      * @param key the key to get value
      * @return the value you get, null for miss or no memory cache
      */
-    public V getFromMemory(String key) {
+    public V getFromMemory(@NonNull String key) {
         if (mHasMemoryCache) {
             return mMemoryCache.get(key);
         } else {
@@ -161,17 +156,14 @@ public abstract class BeerBelly<V> {
     }
 
     /**
-     * Get value from memory cache
+     * Get value from disk cache. Override {@link #read(InputStreamHelper)} to do it
      *
      * @param key the key to get value
      * @return the value you get, null for miss or no memory cache or get error
      */
     @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter")
-    public V getFromDisk(String key) {
+    public V getFromDisk(@NonNull String key) {
         if (mHasDiskCache) {
-            // Wait for pause
-            waitUntilUnpaused();
-
             String diskKey = hashKeyForDisk(key);
 
             CounterLock lock = obtainLock(diskKey);
@@ -201,7 +193,7 @@ public abstract class BeerBelly<V> {
      * @param key the key to get value
      * @return the value you get
      */
-    public V get(String key) {
+    public V get(@NonNull String key) {
         V value = getFromMemory(key);
 
         if (value != null) {
@@ -227,7 +219,7 @@ public abstract class BeerBelly<V> {
      * @param value the value
      * @return false if no memory cache
      */
-    public boolean putToMemory(String key, V value) {
+    public boolean putToMemory(@NonNull String key, @NonNull V value) {
         if (mHasMemoryCache) {
             mMemoryCache.put(key, value);
             return true;
@@ -244,11 +236,8 @@ public abstract class BeerBelly<V> {
      * @return false if no disk cache or get error
      */
     @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter")
-    public boolean putToDisk(String key, V value) {
+    public boolean putToDisk(@NonNull String key, @NonNull V value) {
         if (mHasDiskCache) {
-            // Wait for pause
-            waitUntilUnpaused();
-
             String diskKey = hashKeyForDisk(key);
 
             CounterLock lock = obtainLock(diskKey);
@@ -276,7 +265,7 @@ public abstract class BeerBelly<V> {
      * @param key the key
      * @param value the value
      */
-    public void put(String key, V value) {
+    public void put(@NonNull String key, @NonNull V value) {
         putToMemory(key, value);
         putToDisk(key, value);
     }
@@ -288,11 +277,8 @@ public abstract class BeerBelly<V> {
      * @return false if no disk cache or get error
      */
     @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter")
-    public boolean putRawToDisk(String key, InputStream is) {
+    public boolean putRawToDisk(@NonNull String key, @NonNull InputStream is) {
         if (mHasDiskCache) {
-            // Wait for pause
-            waitUntilUnpaused();
-
             String diskKey = hashKeyForDisk(key);
 
             CounterLock lock = obtainLock(diskKey);
@@ -311,37 +297,6 @@ public abstract class BeerBelly<V> {
             return result;
         } else {
             return false;
-        }
-    }
-
-    /**
-     * Used to temporarily pause the disk cache while the user is scrolling to
-     * improve scrolling.
-     *
-     * @param pause True to temporarily pause the disk cache, false otherwise.
-     */
-    public void setPauseDiskCache(final boolean pause) {
-        synchronized (mPauseLock) {
-            if (mPauseDiskAccess != pause) {
-                mPauseDiskAccess = pause;
-                if (!pause) {
-                    mPauseLock.notify();
-                }
-            }
-        }
-    }
-
-    private void waitUntilUnpaused() {
-        synchronized (mPauseLock) {
-            if (Looper.myLooper() != Looper.getMainLooper()) {
-                while (mPauseDiskAccess) {
-                    try {
-                        mPauseLock.wait();
-                    } catch (InterruptedException e) {
-                        // ignored, we'll start waiting again
-                    }
-                }
-            }
         }
     }
 
@@ -515,7 +470,6 @@ public abstract class BeerBelly<V> {
         }
     }
 
-
     public class MemoryCahce<E> extends LruCache<String, E> {
 
         public BeerBelly<E> mParent;
@@ -529,8 +483,12 @@ public abstract class BeerBelly<V> {
         protected int sizeOf(String key, E value) {
             return mParent.sizeOf(key, value);
         }
-    }
 
+        @Override
+        protected void entryRemoved(boolean evicted, String key, E oldValue, E newValue) {
+            mParent.memoryEntryRemoved(evicted, key, oldValue, newValue);
+        }
+    }
 
     public static class DiskCache<E> {
 
@@ -571,29 +529,8 @@ public abstract class BeerBelly<V> {
         }
 
         public E get(String key) {
-            DiskLruCache.Snapshot snapshot = null;
-            try {
-                snapshot = mDiskLruCache.get(key);
-                if ( snapshot == null ) {
-                    // Miss
-                    return null;
-                }
-
-                final InputStream in = snapshot.getInputStream(0);
-                if (in != null) {
-                    final BufferedInputStream buffIn =
-                            new BufferedInputStream(in, IO_BUFFER_SIZE);
-                    return mParent.read(buffIn);
-                } else {
-                    // Can't get InputStream
-                    return null;
-                }
-            } catch (IOException e) {
-                // e.printStackTrace();
-                return null;
-            } finally {
-                Util.closeQuietly(snapshot);
-            }
+            InputStreamHelper ish = new InputStreamHelper(mDiskLruCache, key);
+            return mParent.read(ish);
         }
 
         public boolean put(String key, E value) {
@@ -676,6 +613,49 @@ public abstract class BeerBelly<V> {
                 os.write(buffer, 0, bytesRead);
             }
             os.flush();
+        }
+    }
+
+    public static class InputStreamHelper {
+
+        private DiskLruCache mDiskLruCache;
+        private String mKey;
+
+        private DiskLruCache.Snapshot mCurrentSnapshot;
+
+        private InputStreamHelper(DiskLruCache diskLruCache, String key) {
+            mDiskLruCache = diskLruCache;
+            mKey = key;
+        }
+
+        /**
+         * Get the stream to read. Call {@link #close()} to close it.
+         *
+         * @return the stream to read
+         */
+        public InputStream open() {
+            DiskLruCache.Snapshot snapshot;
+
+            try {
+                snapshot = mDiskLruCache.get(mKey);
+            } catch (IOException e) {
+                // Get trouble
+                return null;
+            }
+
+            if (snapshot == null) {
+                // Miss
+                return null;
+            }
+
+            mCurrentSnapshot = snapshot;
+
+            return snapshot.getInputStream(0);
+        }
+
+        public void close() {
+            Util.closeQuietly(mCurrentSnapshot);
+            mCurrentSnapshot = null;
         }
     }
 }
