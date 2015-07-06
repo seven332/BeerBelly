@@ -1,6 +1,8 @@
 package com.hippo.beerbelly;
 
-public class CounterLock {
+import java.util.concurrent.locks.ReentrantLock;
+
+public class CounterLock extends ReentrantLock {
 
     private int count;
 

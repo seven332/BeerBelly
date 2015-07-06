@@ -26,28 +26,16 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HashMap;
-import java.util.Map;
 
 public abstract class BeerBelly<V> {
 
     private static final String TAG = BeerBelly.class.getSimpleName();
-
-    private static final int STATE_DISK_CACHE_NONE = 0;
-    private static final int STATE_DISK_CACHE_IN_USE = 1;
-    private static final int STATE_DISK_CACHE_BUSY = 2;
 
     private MemoryCahce<V> mMemoryCache;
     private @Nullable DiskCache<V> mDiskCache;
 
     private final boolean mHasMemoryCache;
     private final boolean mHasDiskCache;
-
-    private final Object mDiskCacheLock = new Object();
-    private final Map<String, CounterLock> mDiskCacheLockMap = new HashMap<>();
-    private transient int mDiskCacheState;
 
     public BeerBelly(BeerBellyParams params) {
         params.isVaild();
@@ -60,7 +48,6 @@ public abstract class BeerBelly<V> {
 
         if (mHasDiskCache) {
             initDiskCache(params.diskCacheDir, params.diskCacheMaxSize);
-            mDiskCacheState = STATE_DISK_CACHE_NONE;
         }
     }
 
@@ -81,7 +68,7 @@ public abstract class BeerBelly<V> {
 
     protected abstract void memoryEntryRemoved(boolean evicted, String key, V oldValue, V newValue);
 
-    protected abstract V read(InputStreamHelper ish);
+    protected abstract V read(SimpleDiskCache.InputStreamHelper ish);
 
     protected abstract boolean write(OutputStream os, V value);
 
@@ -103,6 +90,14 @@ public abstract class BeerBelly<V> {
         return mHasDiskCache;
     }
 
+    public long size() {
+        if (mHasDiskCache && mDiskCache != null) {
+            return mDiskCache.size();
+        } else {
+            return -1l;
+        }
+    }
+
     /**
      * Get value from memory cache
      *
@@ -117,70 +112,15 @@ public abstract class BeerBelly<V> {
         }
     }
 
-    private CounterLock obtainLock(String key) {
-        CounterLock lock;
-        synchronized (mDiskCacheLock) {
-            // Wait for clear over
-            while (mDiskCacheState == STATE_DISK_CACHE_BUSY) {
-                try {
-                    mDiskCacheLock.wait();
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
-            mDiskCacheState = STATE_DISK_CACHE_IN_USE;
-
-            // Get lock from key
-            lock = mDiskCacheLockMap.get(key);
-            if (lock == null) {
-                lock = new CounterLock();
-                mDiskCacheLockMap.put(key, lock);
-            }
-            lock.occupy();
-        }
-        return lock;
-    }
-
-    private void freeLock(String key, CounterLock lock) {
-        synchronized (mDiskCacheLock) {
-            lock.release();
-            if (lock.isFree()) {
-                mDiskCacheLockMap.remove(key);
-            }
-
-            if (mDiskCacheLockMap.isEmpty()) {
-                mDiskCacheState = STATE_DISK_CACHE_NONE;
-                mDiskCacheLock.notifyAll();
-            }
-        }
-    }
-
     /**
-     * Get value from disk cache. Override {@link #read(InputStreamHelper)} to do it
+     * Get value from disk cache. Override {@link #read(SimpleDiskCache.InputStreamHelper)} to do it
      *
      * @param key the key to get value
      * @return the value you get, null for miss or no memory cache or get error
      */
-    @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter")
     public V getFromDisk(@NonNull String key) {
-        if (mHasDiskCache) {
-            String diskKey = hashKeyForDisk(key);
-
-            CounterLock lock = obtainLock(diskKey);
-
-            V value;
-            // Get value from disk cache
-            synchronized (lock) {
-                if (mDiskCache != null) {
-                    value = mDiskCache.get(diskKey);
-                } else {
-                    value = null;
-                }
-            }
-
-            freeLock(diskKey, lock);
-
-            return value;
+        if (mHasDiskCache && mDiskCache != null) {
+            return mDiskCache.get(key);
         } else {
             return null;
         }
@@ -235,25 +175,9 @@ public abstract class BeerBelly<V> {
      * @param value the value
      * @return false if no disk cache or get error
      */
-    @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter")
     public boolean putToDisk(@NonNull String key, @NonNull V value) {
-        if (mHasDiskCache) {
-            String diskKey = hashKeyForDisk(key);
-
-            CounterLock lock = obtainLock(diskKey);
-
-            boolean result;
-            synchronized (lock) {
-                if (mDiskCache != null) {
-                    result = mDiskCache.put(diskKey, value);
-                } else {
-                    result = false;
-                }
-            }
-
-            freeLock(diskKey, lock);
-
-            return result;
+        if (mHasDiskCache && mDiskCache != null) {
+            return mDiskCache.put(key, value);
         } else {
             return false;
         }
@@ -278,23 +202,8 @@ public abstract class BeerBelly<V> {
      */
     @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter")
     public boolean putRawToDisk(@NonNull String key, @NonNull InputStream is) {
-        if (mHasDiskCache) {
-            String diskKey = hashKeyForDisk(key);
-
-            CounterLock lock = obtainLock(diskKey);
-
-            boolean result;
-            synchronized (lock) {
-                if (mDiskCache != null) {
-                    result = mDiskCache.putRaw(diskKey, is);
-                } else {
-                    result = false;
-                }
-            }
-
-            freeLock(diskKey, lock);
-
-            return result;
+        if (mHasDiskCache && mDiskCache != null) {
+            return mDiskCache.putRaw(key, is);
         } else {
             return false;
         }
@@ -313,62 +222,14 @@ public abstract class BeerBelly<V> {
      * Clear disk cache
      */
     public void clearDisk() {
-        if (mHasDiskCache) {
-
-            synchronized (mDiskCacheLock) {
-                // Wait for cache available
-                while (mDiskCacheState != STATE_DISK_CACHE_NONE) {
-                    try {
-                        mDiskCacheLock.wait();
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
-                }
-                mDiskCacheState = STATE_DISK_CACHE_BUSY;
-
-                if (mDiskCache != null && !mDiskCache.isClosed()) {
-                    try {
-                        mDiskCache.delete();
-                    } catch (IOException e) {
-                        Log.e(TAG, "BeerBelly clearCache", e);
-                    }
-                    File cacheDir = mDiskCache.getCacheDir();
-                    int maxSize = mDiskCache.getMaxSize();
-                    mDiskCache = null;
-                    initDiskCache(cacheDir, maxSize);
-                }
-
-                mDiskCacheState = STATE_DISK_CACHE_NONE;
-                mDiskCacheLock.notifyAll();
-            }
+        if (mHasDiskCache && mDiskCache != null) {
+            mDiskCache.clear();
         }
     }
 
     public void flush() {
-        if (mHasDiskCache) {
-
-            synchronized (mDiskCacheLock) {
-                // Wait for cache available
-                while (mDiskCacheState != STATE_DISK_CACHE_NONE) {
-                    try {
-                        mDiskCacheLock.wait();
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
-                }
-                mDiskCacheState = STATE_DISK_CACHE_BUSY;
-
-                if (mDiskCache != null) {
-                    try {
-                        mDiskCache.flush();
-                    } catch (IOException e) {
-                        Log.e(TAG, "BeerBelly flush", e);
-                    }
-                }
-
-                mDiskCacheState = STATE_DISK_CACHE_NONE;
-                mDiskCacheLock.notifyAll();
-            }
+        if (mHasDiskCache && mDiskCache != null) {
+            mDiskCache.flush();
         }
     }
 
@@ -379,43 +240,6 @@ public abstract class BeerBelly<V> {
     public void clear() {
         clearMemory();
         clearDisk();
-    }
-
-    /**
-     * A hashing method that changes a string (like a URL) into a hash suitable
-     * for using as a disk filename.
-     *
-     * @param key The key used to store the file
-     */
-    private static String hashKeyForDisk(final String key) {
-        String cacheKey;
-        try {
-            final MessageDigest digest = MessageDigest.getInstance("MD5");
-            digest.update(key.getBytes());
-            cacheKey = bytesToHexString(digest.digest());
-        } catch (final NoSuchAlgorithmException e) {
-            cacheKey = String.valueOf(key.hashCode());
-        }
-        return cacheKey;
-    }
-
-    /**
-     * http://stackoverflow.com/questions/332079
-     *
-     * @param bytes The bytes to convert.
-     * @return A {@link String} converted from the bytes of a hashable key used
-     *         to store a filename on the disk, to hex digits.
-     */
-    private static String bytesToHexString(final byte[] bytes) {
-        final StringBuilder builder = new StringBuilder();
-        for (final byte b : bytes) {
-            final String hex = Integer.toHexString(0xFF & b);
-            if (hex.length() == 1) {
-                builder.append('0');
-            }
-            builder.append(hex);
-        }
-        return builder.toString();
     }
 
     /**
@@ -494,14 +318,14 @@ public abstract class BeerBelly<V> {
 
         private static final int IO_BUFFER_SIZE = 8 * 1024;
 
-        private DiskLruCache mDiskLruCache;
+        private SimpleDiskCache mDiskCache;
         private BeerBelly<E> mParent;
 
         private File mCacheDir;
         private int mMaxSize;
 
         public DiskCache(File cacheDir, int size, BeerBelly<E> parent) throws IOException {
-            mDiskLruCache = DiskLruCache.open(cacheDir, 1, 1, size);
+            mDiskCache = new SimpleDiskCache(cacheDir, size);
             mParent = parent;
 
             mCacheDir = cacheDir;
@@ -516,146 +340,49 @@ public abstract class BeerBelly<V> {
             return mMaxSize;
         }
 
-        public boolean isClosed() {
-            return mDiskLruCache.isClosed();
+        public long size() {
+            return mDiskCache.size();
         }
 
-        public void delete() throws IOException {
-            mDiskLruCache.delete();
+        public void flush() {
+            mDiskCache.flush();
         }
 
-        public void flush() throws IOException {
-            mDiskLruCache.flush();
+        public void clear() {
+            mDiskCache.clear();
         }
 
         public E get(String key) {
-            InputStreamHelper ish = new InputStreamHelper(mDiskLruCache, key);
-            return mParent.read(ish);
+            SimpleDiskCache.InputStreamHelper ips = mDiskCache.getInputStreamHelper(key);
+            if (ips == null) {
+                return null;
+            }
+
+            E value = mParent.read(ips);
+            mDiskCache.releaseInputStreamHelper(ips);
+
+            return value;
         }
 
         public boolean put(String key, E value) {
-            DiskLruCache.Editor editor = null;
-            OutputStream os = null;
-            boolean completeEdit = false;
-            try {
-                editor = mDiskLruCache.edit(key);
-                if (editor == null) {
-                    // The editor is in progress
-                    return false;
-                }
-
-                os = editor.newOutputStream(0);
-                if (os != null) {
-                    final BufferedOutputStream buffOut =
-                            new BufferedOutputStream(os, IO_BUFFER_SIZE);
-                    if (mParent.write(buffOut, value)) {
-                        completeEdit = true;
-                        editor.commit();
-                        return true;
-                    }
-                }
-                // Can't get OutputStream or can't write
-                Util.closeQuietly(os);
-                completeEdit = false;
-                editor.abort();
-                return false;
-            } catch (IOException e) {
-                Util.closeQuietly(os);
-                try {
-                    if (!completeEdit && editor != null) {
-                        editor.abort();
-                    }
-                } catch (IOException ignored) {
-                }
+            SimpleDiskCache.OutputStreamHelper ops = mDiskCache.getOutputStreamHelper(key);
+            if (ops == null) {
                 return false;
             }
+
+            boolean result;
+            OutputStream os = ops.open();
+            final BufferedOutputStream buffOut = new BufferedOutputStream(os, IO_BUFFER_SIZE);
+            result = mParent.write(buffOut, value);
+            ops.close();
+
+            mDiskCache.releaseOutputStreamHelper(ops);
+
+            return result;
         }
 
         public boolean putRaw(String key, InputStream is) {
-            DiskLruCache.Editor editor = null;
-            OutputStream os = null;
-            boolean completeEdit = false;
-            try {
-                editor = mDiskLruCache.edit(key);
-                if (editor == null) {
-                    // The editor is in progress
-                    return false;
-                }
-
-                os = editor.newOutputStream(0);
-                if (os != null) {
-                    copy(is, os, IO_BUFFER_SIZE);
-                    completeEdit = true;
-                    editor.commit();
-                    return true;
-                } else {
-                    // Can't get OutputStream
-                    completeEdit = true;
-                    editor.abort();
-                    return false;
-                }
-            } catch (IOException e) {
-                Util.closeQuietly(os);
-                try {
-                    if (!completeEdit && editor != null) {
-                        editor.abort();
-                    }
-                } catch (IOException ignored) {
-                }
-                return false;
-            }
-        }
-
-        public static void copy(InputStream is, OutputStream os, int size) throws IOException {
-            byte[] buffer = new byte[size];
-            int bytesRead;
-            while((bytesRead = is.read(buffer)) !=-1) {
-                os.write(buffer, 0, bytesRead);
-            }
-            os.flush();
-        }
-    }
-
-    public static class InputStreamHelper {
-
-        private DiskLruCache mDiskLruCache;
-        private String mKey;
-
-        private DiskLruCache.Snapshot mCurrentSnapshot;
-
-        private InputStreamHelper(DiskLruCache diskLruCache, String key) {
-            mDiskLruCache = diskLruCache;
-            mKey = key;
-        }
-
-        /**
-         * Get the stream to read. Call {@link #close()} to close it.
-         *
-         * @return the stream to read
-         */
-        public InputStream open() {
-            DiskLruCache.Snapshot snapshot;
-
-            try {
-                snapshot = mDiskLruCache.get(mKey);
-            } catch (IOException e) {
-                // Get trouble
-                return null;
-            }
-
-            if (snapshot == null) {
-                // Miss
-                return null;
-            }
-
-            mCurrentSnapshot = snapshot;
-
-            return snapshot.getInputStream(0);
-        }
-
-        public void close() {
-            Util.closeQuietly(mCurrentSnapshot);
-            mCurrentSnapshot = null;
+            return mDiskCache.put(key, is);
         }
     }
 }
