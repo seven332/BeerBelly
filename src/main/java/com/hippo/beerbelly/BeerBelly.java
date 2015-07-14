@@ -90,7 +90,15 @@ public abstract class BeerBelly<V> {
         return mHasDiskCache;
     }
 
-    public long size() {
+    public int memorySize() {
+        if (mHasMemoryCache && mMemoryCache != null) {
+            return mMemoryCache.size();
+        } else {
+            return -1;
+        }
+    }
+
+    public long diskSize() {
         if (mHasDiskCache && mDiskCache != null) {
             return mDiskCache.size();
         } else {
