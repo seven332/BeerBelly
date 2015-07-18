@@ -21,6 +21,9 @@ import android.support.annotation.Nullable;
 import android.util.Log;
 import android.util.LruCache;
 
+import com.hippo.yorozuya.io.InputStreamPipe;
+import com.hippo.yorozuya.io.OutputStreamPipe;
+
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.IOException;
@@ -68,7 +71,7 @@ public abstract class BeerBelly<V> {
 
     protected abstract void memoryEntryRemoved(boolean evicted, String key, V oldValue, V newValue);
 
-    protected abstract V read(SimpleDiskCache.InputStreamHelper ish);
+    protected abstract V read(@NonNull InputStreamPipe isPipe);
 
     protected abstract boolean write(OutputStream os, V value);
 
@@ -121,7 +124,7 @@ public abstract class BeerBelly<V> {
     }
 
     /**
-     * Get value from disk cache. Override {@link #read(SimpleDiskCache.InputStreamHelper)} to do it
+     * Get value from disk cache. Override {@link #read(InputStreamPipe)} to do it
      *
      * @param key the key to get value
      * @return the value you get, null for miss or no memory cache or get error
@@ -361,32 +364,27 @@ public abstract class BeerBelly<V> {
         }
 
         public E get(String key) {
-            SimpleDiskCache.InputStreamHelper ips = mDiskCache.getInputStreamHelper(key);
-            if (ips == null) {
+            InputStreamPipe isPipe = mDiskCache.getInputStreamPipe(key);
+            if (isPipe == null) {
                 return null;
+            } else {
+                return mParent.read(isPipe);
             }
-
-            E value = mParent.read(ips);
-            mDiskCache.releaseInputStreamHelper(ips);
-
-            return value;
         }
 
         public boolean put(String key, E value) {
-            SimpleDiskCache.OutputStreamHelper ops = mDiskCache.getOutputStreamHelper(key);
-            if (ops == null) {
+            OutputStreamPipe osPipe = mDiskCache.getOutputStreamPipe(key);
+            try {
+                osPipe.obtain();
+                OutputStream os = osPipe.open();
+                final BufferedOutputStream buffOut = new BufferedOutputStream(os, IO_BUFFER_SIZE);
+                return mParent.write(buffOut, value);
+            } catch (IOException e) {
                 return false;
+            } finally {
+                osPipe.close();
+                osPipe.release();
             }
-
-            boolean result;
-            OutputStream os = ops.open();
-            final BufferedOutputStream buffOut = new BufferedOutputStream(os, IO_BUFFER_SIZE);
-            result = mParent.write(buffOut, value);
-            ops.close();
-
-            mDiskCache.releaseOutputStreamHelper(ops);
-
-            return result;
         }
 
         public boolean putRaw(String key, InputStream is) {

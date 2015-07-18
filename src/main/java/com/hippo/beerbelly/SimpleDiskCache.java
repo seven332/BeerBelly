@@ -17,7 +17,11 @@
 package com.hippo.beerbelly;
 
 import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.util.Log;
+
+import com.hippo.yorozuya.io.InputStreamPipe;
+import com.hippo.yorozuya.io.OutputStreamPipe;
 
 import java.io.File;
 import java.io.IOException;
@@ -175,48 +179,56 @@ public class SimpleDiskCache {
         }
     }
 
-    public InputStreamHelper getInputStreamHelper(@NonNull String key) {
+    public boolean contain(@NonNull String key) {
         String diskKey = hashKeyForDisk(key);
 
         CounterLock lock = obtainLock(diskKey);
 
         if (!isValid()) {
             releaseLock(diskKey, lock);
-            return null;
+            return false;
         }
 
         lock.lock();
 
-        return new InputStreamHelper(mDiskLruCache, lock, diskKey);
+        boolean result;
+        try {
+            DiskLruCache.Snapshot snapshot = mDiskLruCache.get(diskKey);
+            if (snapshot != null) {
+                snapshot.close();
+                result = true;
+            } else {
+                result = false;
+            }
+        } catch (IOException e) {
+            // Get trouble
+            result = false;
+        }
+
+        lock.unlock();
+
+        releaseLock(diskKey, lock);
+
+        return result;
     }
 
-    public void releaseInputStreamHelper(InputStreamHelper ish) {
-        ish.mLock.unlock();
-        releaseLock(ish.mKey, ish.mLock);
-        ish.clear();
+    /**
+     * @param key the key of the target
+     * @return the InputStreamPipe, <code>null</code> for missing
+     */
+    public @Nullable InputStreamPipe getInputStreamPipe(@NonNull String key) {
+        if (contain(key)) {
+            String diskKey = hashKeyForDisk(key);
+            return new CacheInputStreamPipe(diskKey);
+        } else {
+            return null;
+        }
     }
 
-    public OutputStreamHelper getOutputStreamHelper(@NonNull String key) {
+    public @NonNull OutputStreamPipe getOutputStreamPipe(@NonNull String key) {
         String diskKey = hashKeyForDisk(key);
-
-        CounterLock lock = obtainLock(diskKey);
-
-        if (!isValid()) {
-            releaseLock(diskKey, lock);
-            return null;
-        }
-
-        lock.lock();
-
-        return new OutputStreamHelper(mDiskLruCache, lock, diskKey);
+        return new CacheOutputStreamPipe(diskKey);
     }
-
-    public void releaseOutputStreamHelper(OutputStreamHelper osh) {
-        osh.mLock.unlock();
-        releaseLock(osh.mKey, osh.mLock);
-        osh.clear();
-    }
-
 
     @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter")
     public boolean put(@NonNull String key, @NonNull InputStream is) {
@@ -317,93 +329,108 @@ public class SimpleDiskCache {
         return builder.toString();
     }
 
-    public static class InputStreamHelper {
+    class CacheInputStreamPipe implements InputStreamPipe {
 
-        private DiskLruCache mDiskLruCache;
-        private CounterLock mLock;
         private String mKey;
-
+        private CounterLock mLock;
         private DiskLruCache.Snapshot mCurrentSnapshot;
 
-        private InputStreamHelper(DiskLruCache diskLruCache, CounterLock lock, String key) {
-            mDiskLruCache = diskLruCache;
-            mLock = lock;
+        private CacheInputStreamPipe(String key) {
             mKey = key;
         }
 
-        /**
-         * Get the stream to read. Call {@link #close()} to close it.
-         *
-         * @return the stream to read
-         */
-        public InputStream open() {
+        @Override
+        public void obtain() {
+            if (mLock == null) {
+                mLock = obtainLock(mKey);
+                mLock.lock();
+            }
+        }
+
+        @Override
+        public void release() {
+            if (mCurrentSnapshot != null) {
+                throw new IllegalStateException("Please close it first");
+            }
+
+            if (mLock != null) {
+                mLock.unlock();
+                releaseLock(mKey, mLock);
+                mLock = null;
+            }
+        }
+
+        @Override
+        public @NonNull InputStream open() throws IOException {
+            if (mLock == null) {
+                throw new IllegalStateException("Please obtain it first");
+            }
+            if (mCurrentSnapshot != null) {
+                throw new IllegalStateException("Please close it before reopen");
+            }
+
             DiskLruCache.Snapshot snapshot;
-
-            try {
-                snapshot = mDiskLruCache.get(mKey);
-            } catch (IOException e) {
-                // Get trouble
-                return null;
-            }
-
+            snapshot = mDiskLruCache.get(mKey);
             if (snapshot == null) {
-                // Miss
-                return null;
+                throw new IOException("Miss the key " + mKey);
             }
-
             mCurrentSnapshot = snapshot;
-
             return snapshot.getInputStream(0);
         }
 
+        @Override
         public void close() {
             Util.closeQuietly(mCurrentSnapshot);
             mCurrentSnapshot = null;
         }
-
-        void clear() {
-            mDiskLruCache = null;
-            mLock = null;
-            mKey = null;
-        }
     }
 
-    public static class OutputStreamHelper {
+    class CacheOutputStreamPipe implements OutputStreamPipe {
 
-        private DiskLruCache mDiskLruCache;
-        private CounterLock mLock;
         private String mKey;
-
+        private CounterLock mLock;
         private DiskLruCache.Editor mCurrentEditor;
 
-        private OutputStreamHelper(DiskLruCache diskLruCache, CounterLock lock, String key) {
-            mDiskLruCache = diskLruCache;
-            mLock = lock;
+        private CacheOutputStreamPipe(String key) {
             mKey = key;
         }
 
-        /**
-         * Get the stream to write. Call {@link #close()} to close it.
-         *
-         * @return the stream to write
-         */
-        public OutputStream open() {
-            DiskLruCache.Editor editor;
+        @Override
+        public void obtain() {
+            if (mLock == null) {
+                mLock = obtainLock(mKey);
+                mLock.lock();
+            }
+        }
 
-            try {
-                editor = mDiskLruCache.edit(mKey);
-            } catch (IOException e) {
-                // Get trouble
-                return null;
+        @Override
+        public void release() {
+            if (mCurrentEditor != null) {
+                throw new IllegalStateException("Please close it first");
             }
 
+            if (mLock != null) {
+                mLock.unlock();
+                releaseLock(mKey, mLock);
+                mLock = null;
+            }
+        }
+
+        @Override
+        public @NonNull OutputStream open() throws IOException {
+            if (mLock == null) {
+                throw new IllegalStateException("Please obtain it first");
+            }
+            if (mCurrentEditor != null) {
+                throw new IllegalStateException("Please close it before reopen");
+            }
+
+            DiskLruCache.Editor editor = mDiskLruCache.edit(mKey);
             if (editor == null) {
-                // Miss
-                return null;
+                throw new IOException("Miss the key " + mKey);
             }
 
             OutputStream os;
-
             try {
                 os = editor.newOutputStream(0);
                 mCurrentEditor = editor;
@@ -412,26 +439,23 @@ public class SimpleDiskCache {
                 // Get trouble
                 try {
                     editor.abort();
-                } catch (IOException e1) {
-                    e1.printStackTrace();
+                } catch (IOException ex) {
+                    // Ignore
                 }
-                return null;
+                throw e;
             }
         }
 
+        @Override
         public void close() {
-            try {
-                mCurrentEditor.commit();
-            } catch (IOException e) {
-                // Empty
+            if (mCurrentEditor != null) {
+                try {
+                    mCurrentEditor.commit();
+                } catch (IOException e) {
+                    // Empty
+                }
+                mCurrentEditor = null;
             }
-            mCurrentEditor = null;
-        }
-
-        void clear() {
-            mDiskLruCache = null;
-            mLock = null;
-            mKey = null;
         }
     }
 }
