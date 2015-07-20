@@ -104,6 +104,7 @@ public class SimpleDiskCache {
         }
     }
 
+    // TODO Need a better way to handle clear failed
     public boolean clear() {
         boolean result = true;
         synchronized (mDiskCacheLock) {
@@ -211,6 +212,30 @@ public class SimpleDiskCache {
 
         return result;
     }
+
+    public void remove(@NonNull String key) {
+        String diskKey = hashKeyForDisk(key);
+
+        CounterLock lock = obtainLock(diskKey);
+
+        if (!isValid()) {
+            releaseLock(diskKey, lock);
+            return;
+        }
+
+        lock.lock();
+
+        try {
+            mDiskLruCache.remove(diskKey);
+        } catch (IOException e) {
+            // Ignore
+        }
+
+        lock.unlock();
+
+        releaseLock(diskKey, lock);
+    }
+
 
     /**
      * @param key the key of the target
