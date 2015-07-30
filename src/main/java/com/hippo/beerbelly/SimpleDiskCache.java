@@ -48,7 +48,7 @@ public class SimpleDiskCache {
     private final Object mDiskCacheLock = new Object();
     private final Map<String, CounterLock> mDiskCacheLockMap = new HashMap<>();
 
-    private transient int mDiskCacheState;
+    private volatile int mDiskCacheState;
 
     private DiskLruCache mDiskLruCache;
 
