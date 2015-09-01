@@ -21,6 +21,7 @@ import android.support.annotation.Nullable;
 import android.util.Log;
 import android.util.LruCache;
 
+import com.hippo.yorozuya.IOUtils;
 import com.hippo.yorozuya.io.InputStreamPipe;
 import com.hippo.yorozuya.io.OutputStreamPipe;
 
@@ -374,14 +375,16 @@ public abstract class BeerBelly<V> {
 
         public boolean put(String key, E value) {
             OutputStreamPipe osPipe = mDiskCache.getOutputStreamPipe(key);
+            BufferedOutputStream buffOut = null;
             try {
                 osPipe.obtain();
                 OutputStream os = osPipe.open();
-                final BufferedOutputStream buffOut = new BufferedOutputStream(os, IO_BUFFER_SIZE);
-                return mParent.write(buffOut, value);
+                buffOut = new BufferedOutputStream(os, IO_BUFFER_SIZE);
+                return mParent.write(os, value);
             } catch (IOException e) {
                 return false;
             } finally {
+                IOUtils.closeQuietly(buffOut);
                 osPipe.close();
                 osPipe.release();
             }

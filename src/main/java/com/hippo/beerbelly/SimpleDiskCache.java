@@ -32,6 +32,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
 import java.util.Map;
 
+// TODO Use ReadWriteLock
 public class SimpleDiskCache {
 
     private static final String TAG = SimpleDiskCache.class.getSimpleName();
