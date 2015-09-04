@@ -206,6 +206,14 @@ public abstract class BeerBelly<V> {
         putToDisk(key, value);
     }
 
+    public boolean pullFromDiskCache(@NonNull String key, @NonNull OutputStream os) {
+        if (mHasDiskCache && mDiskCache != null) {
+            return mDiskCache.pull(key, os);
+        } else {
+            return false;
+        }
+    }
+
     /**
      *
      * @param key the key
@@ -392,6 +400,25 @@ public abstract class BeerBelly<V> {
 
         public boolean putRaw(String key, InputStream is) {
             return mDiskCache.put(key, is);
+        }
+
+        public boolean pull(@NonNull String key, @NonNull OutputStream os) {
+            InputStreamPipe isPipe = mDiskCache.getInputStreamPipe(key);
+            if (isPipe == null) {
+                return false;
+            } else {
+                try {
+                    isPipe.obtain();
+                    InputStream is = isPipe.open();
+                    IOUtils.copy(is, os);
+                    return true;
+                } catch (IOException e) {
+                    return false;
+                } finally {
+                    isPipe.close();
+                    isPipe.release();
+                }
+            }
         }
     }
 }
