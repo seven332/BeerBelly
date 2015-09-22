@@ -206,6 +206,23 @@ public abstract class BeerBelly<V> {
         putToDisk(key, value);
     }
 
+    public void removeFromMemory(@NonNull String key) {
+        if (mHasMemoryCache) {
+            mMemoryCache.remove(key);
+        }
+    }
+
+    public void removeFromDisk(@NonNull String key) {
+        if (mHasDiskCache && mDiskCache != null) {
+            mDiskCache.remove(key);
+        }
+    }
+
+    public void remove(@NonNull String key) {
+        removeFromMemory(key);
+        removeFromDisk(key);
+    }
+
     public boolean pullFromDiskCache(@NonNull String key, @NonNull OutputStream os) {
         if (mHasDiskCache && mDiskCache != null) {
             return mDiskCache.pull(key, os);
@@ -400,6 +417,10 @@ public abstract class BeerBelly<V> {
 
         public boolean putRaw(String key, InputStream is) {
             return mDiskCache.put(key, is);
+        }
+
+        public void remove(String key) {
+            mDiskCache.remove(key);
         }
 
         public boolean pull(@NonNull String key, @NonNull OutputStream os) {

@@ -20,6 +20,7 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.util.Log;
 
+import com.hippo.yorozuya.IOUtils;
 import com.hippo.yorozuya.io.InputStreamPipe;
 import com.hippo.yorozuya.io.OutputStreamPipe;
 
@@ -36,8 +37,6 @@ import java.util.Map;
 public class SimpleDiskCache {
 
     private static final String TAG = SimpleDiskCache.class.getSimpleName();
-
-    private static final int IO_BUFFER_SIZE = 8 * 1024;
 
     private static final int STATE_DISK_CACHE_NONE = 0;
     private static final int STATE_DISK_CACHE_IN_USE = 1;
@@ -287,7 +286,7 @@ public class SimpleDiskCache {
 
             os = editor.newOutputStream(0);
             if (os != null) {
-                copy(is, os, IO_BUFFER_SIZE);
+                IOUtils.copy(is, os);
                 completeEdit = true;
                 editor.commit();
                 return true;
@@ -307,15 +306,6 @@ public class SimpleDiskCache {
             }
             return false;
         }
-    }
-
-    public static void copy(InputStream is, OutputStream os, int size) throws IOException {
-        byte[] buffer = new byte[size];
-        int bytesRead;
-        while((bytesRead = is.read(buffer)) !=-1) {
-            os.write(buffer, 0, bytesRead);
-        }
-        os.flush();
     }
 
     /**
