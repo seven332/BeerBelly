@@ -70,6 +70,8 @@ public abstract class BeerBelly<V> {
 
     protected abstract int sizeOf(String key, V value);
 
+    protected abstract void memoryEntryAdded(V value);
+
     protected abstract void memoryEntryRemoved(boolean evicted, String key, V oldValue, V newValue);
 
     protected abstract V read(@NonNull InputStreamPipe isPipe);
@@ -173,6 +175,7 @@ public abstract class BeerBelly<V> {
      */
     public boolean putToMemory(@NonNull String key, @NonNull V value) {
         if (mHasMemoryCache) {
+            memoryEntryAdded(value);
             mMemoryCache.put(key, value);
             return true;
         } else {
