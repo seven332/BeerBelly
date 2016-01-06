@@ -19,7 +19,6 @@ package com.hippo.beerbelly;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.util.Log;
-import android.util.LruCache;
 
 import com.hippo.yorozuya.IOUtils;
 import com.hippo.yorozuya.io.InputStreamPipe;
@@ -30,6 +29,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Comparator;
 
 public abstract class BeerBelly<V> {
 
@@ -74,6 +74,8 @@ public abstract class BeerBelly<V> {
 
     protected abstract void memoryEntryRemoved(boolean evicted, String key, V oldValue, V newValue);
 
+    protected abstract boolean canBeRemoved(String key, V value);
+
     protected abstract V read(@NonNull InputStreamPipe isPipe);
 
     protected abstract boolean write(OutputStream os, V value);
@@ -108,7 +110,7 @@ public abstract class BeerBelly<V> {
         if (mHasDiskCache && mDiskCache != null) {
             return mDiskCache.size();
         } else {
-            return -1l;
+            return -1L;
         }
     }
 
@@ -334,12 +336,27 @@ public abstract class BeerBelly<V> {
         }
     }
 
-    public class MemoryCahce<E> extends LruCache<String, E> {
+    private static final Comparator<String> sStringComparator = new Comparator<String>() {
+        @Override
+        public int compare(String lhs, String rhs) {
+            if (lhs == null) {
+                return -1;
+            } else if ( rhs == null ) {
+                return 1;
+            } else if (lhs.equals(rhs)) {
+                return 0;
+            } else {
+                return lhs.compareTo(rhs);
+            }
+        }
+    };
+
+    public class MemoryCahce<E> extends LruCacheEx<String, E> {
 
         public BeerBelly<E> mParent;
 
         public MemoryCahce(int maxSize, BeerBelly<E> parent) {
-            super(maxSize);
+            super(maxSize, sStringComparator);
             mParent = parent;
         }
 
@@ -351,6 +368,11 @@ public abstract class BeerBelly<V> {
         @Override
         protected void entryRemoved(boolean evicted, String key, E oldValue, E newValue) {
             mParent.memoryEntryRemoved(evicted, key, oldValue, newValue);
+        }
+
+        @Override
+        protected boolean canBeRemoved(String key, E value) {
+            return mParent.canBeRemoved(key, value);
         }
     }
 
