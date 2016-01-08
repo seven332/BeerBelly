@@ -157,6 +157,7 @@ public class LruCacheEx<K, V> {
                     // Can not remove it, put it back
                     mLruMap.put(key, value);
                     skipTimes++;
+                    continue;
                 }
             }
 
