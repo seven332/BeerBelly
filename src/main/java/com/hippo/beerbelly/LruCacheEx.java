@@ -108,8 +108,12 @@ public class LruCacheEx<K, V> {
             entryRemoved(false, key, previous, value);
         }
 
-        trimToSize(mMaxSize);
+        trimToSize(mMaxSize, value);
         return previous;
+    }
+
+    public void trimToSize(int maxSize) {
+        trimToSize(maxSize, null);
     }
 
     /**
@@ -119,7 +123,7 @@ public class LruCacheEx<K, V> {
      * @param maxSize the maximum size of the cache before returning. May be -1
      *            to evict even 0-sized elements.
      */
-    public void trimToSize(int maxSize) {
+    public void trimToSize(int maxSize, V keepValue) {
         int count;
         int skipTimes = 0;
         synchronized (this) {
@@ -150,18 +154,16 @@ public class LruCacheEx<K, V> {
 
                 key = toEvict.key;
                 value = toEvict.value;
-                if (canBeRemoved(key, value)) {
+                if (canBeRemoved(key, value) && keepValue != value) {
                     mSize -= safeSizeOf(key, value);
                     mEvictionCount++;
+                    entryRemoved(true, key, value, null);
                 } else {
                     // Can not remove it, put it back
                     mLruMap.put(key, value);
                     skipTimes++;
-                    continue;
                 }
             }
-
-            entryRemoved(true, key, value, null);
         }
     }
 
