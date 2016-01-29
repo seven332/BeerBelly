@@ -36,10 +36,17 @@ public class LruCacheEx<K, V> {
      * @param comparator To help sequence the key for quick query
      */
     public LruCacheEx(int maxSize, Comparator<K> comparator) {
+        this(maxSize, 0, comparator);
+    }
+
+    /**
+     * @param comparator To help sequence the key for quick query
+     */
+    public LruCacheEx(int maxSize, long timeout, Comparator<K> comparator) {
         if (maxSize <= 0) {
             throw new IllegalArgumentException("maxSize <= 0");
         }
-        mLruMap = new LruMap<>(comparator);
+        mLruMap = new LruMap<>(comparator, timeout);
         mSize = 0;
         mMaxSize = maxSize;
     }

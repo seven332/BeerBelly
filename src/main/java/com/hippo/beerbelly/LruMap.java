@@ -20,26 +20,47 @@ import android.support.annotation.NonNull;
 import android.support.annotation.VisibleForTesting;
 import android.util.Log;
 
+import com.hippo.yorozuya.sparse.SparseJLArray;
+import com.hippo.yorozuya.sparse.SparseLLArray;
+
 import java.util.Comparator;
 
 public class LruMap<K, V> {
 
     private static final String TAG = LruMap.class.getSimpleName();
 
-    private SparseObjectArray<K, Entry<K, V>> mMap;
+    private SparseLLArray<K, Entry<K, V>> mMap;
+    private SparseJLArray<Entry<K, V>> mTimeoutMap;
 
     private Entry<K, V> mHead = null;
     private Entry<K, V> mTail = null;
 
+    private long mTimeout;
+    private boolean mSupportTimeout;
+
     public static class Entry<K, V> {
         public K key;
         public V value;
+        public long expired; // Expired
         private Entry<K, V> previous = null;
         private Entry<K, V> next = null;
     }
 
     public LruMap(Comparator<K> comparator) {
-        mMap = new SparseObjectArray<>(comparator);
+        this(comparator, 0);
+    }
+
+    /**
+     * @param comparator help order item and binary search
+     * @param timeout 0 or negation for no time out
+     */
+    public LruMap(Comparator<K> comparator, long timeout) {
+        mMap = new SparseLLArray<>(comparator);
+        mTimeout = timeout;
+        mSupportTimeout = timeout > 0;
+        if (mSupportTimeout) {
+            mTimeoutMap = new SparseJLArray<>();
+        }
     }
 
     private void removeEntry(Entry<K, V> entry) {
@@ -85,7 +106,36 @@ public class LruMap<K, V> {
         }
     }
 
+    private void trimToTimeout() {
+        if (!mSupportTimeout) {
+            return;
+        }
+
+        int index = mTimeoutMap.indexOfKey(System.currentTimeMillis());
+        if (index < 0) {
+            index = ~index;
+            if (index >= mTimeoutMap.size()) {
+                // None item is expired
+                return;
+            }
+        }
+
+        int size = mTimeoutMap.size();
+        for (int i = size - 1; i >= index; i--) {
+            // Get the entry
+            Entry<K, V> entry = mTimeoutMap.valueAt(i);
+            // Remove it from list
+            removeEntry(entry);
+            // Remove it from map
+            mMap.remove(entry.key);
+            // Remove it from timeout map
+            mTimeoutMap.removeAt(i);
+        }
+    }
+
     public V get(@NonNull K key) {
+        trimToTimeout();
+
         int index = mMap.indexOfKey(key);
         if (index < 0) {
             return null;
@@ -100,8 +150,12 @@ public class LruMap<K, V> {
      * @return Old value or null
      */
     public V put(K key, V value) {
+        trimToTimeout();
+
         Entry<K, V> oldEntry = null;
         V oldValue = null;
+
+        // Check is the key in the map
         int index = mMap.indexOfKey(key);
         if (index >= 0) {
             oldEntry = mMap.valueAt(index);
@@ -135,11 +189,18 @@ public class LruMap<K, V> {
         }
         // Add it to map
         mMap.put(key, entry);
+        // Add it to timeout map if necessary
+        if (mSupportTimeout) {
+            entry.expired = System.currentTimeMillis() + mTimeout;
+            mTimeoutMap.put(entry.expired, entry);
+        }
 
         return oldValue;
     }
 
     public V remove(K key) {
+        trimToTimeout();
+
         // Find it
         int index = mMap.indexOfKey(key);
         if (index < 0) {
@@ -159,6 +220,8 @@ public class LruMap<K, V> {
     }
 
     public Entry<K, V> removeTail() {
+        trimToTimeout();
+
         if (mTail == null) {
             return null;
         }
