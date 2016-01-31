@@ -111,26 +111,28 @@ public class LruMap<K, V> {
             return;
         }
 
+        int removeSize;
         int index = mTimeoutMap.indexOfKey(System.currentTimeMillis());
         if (index < 0) {
             index = ~index;
-            if (index >= mTimeoutMap.size()) {
+            if (index >= mTimeoutMap.size() || index <= 0) {
                 // None item is expired
                 return;
             }
+            removeSize = index;
+        } else {
+            removeSize = index + 1;
         }
 
-        int size = mTimeoutMap.size();
-        for (int i = size - 1; i >= index; i--) {
+        for (int i = 0; i < removeSize; i++) {
             // Get the entry
             Entry<K, V> entry = mTimeoutMap.valueAt(i);
             // Remove it from list
             removeEntry(entry);
             // Remove it from map
             mMap.remove(entry.key);
-            // Remove it from timeout map
-            mTimeoutMap.removeAt(i);
         }
+        mTimeoutMap.removeAtRange(0, index);
     }
 
     public V get(@NonNull K key) {
