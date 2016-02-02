@@ -115,7 +115,7 @@ public class LruMap<K, V> {
         int index = mTimeoutMap.indexOfKey(System.currentTimeMillis());
         if (index < 0) {
             index = ~index;
-            if (index >= mTimeoutMap.size() || index <= 0) {
+            if (index > mTimeoutMap.size() || index <= 0) {
                 // None item is expired
                 return;
             }
