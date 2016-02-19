@@ -75,7 +75,11 @@ public class SimpleDiskCache {
 
     public long size() {
         synchronized (mDiskCacheLock) {
-            return mDiskLruCache.size();
+            if (!isValid()) {
+                return mDiskLruCache.size();
+            } else {
+                return -1L;
+            }
         }
     }
 
