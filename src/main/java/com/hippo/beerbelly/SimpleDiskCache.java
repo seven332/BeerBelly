@@ -217,27 +217,29 @@ public class SimpleDiskCache {
         return result;
     }
 
-    public void remove(@NonNull String key) {
+    public boolean remove(@NonNull String key) {
         String diskKey = hashKeyForDisk(key);
 
         CounterLock lock = obtainLock(diskKey);
 
         if (!isValid()) {
             releaseLock(diskKey, lock);
-            return;
+            return false;
         }
 
         lock.lock();
 
+        boolean result = false;
         try {
-            mDiskLruCache.remove(diskKey);
+            result = mDiskLruCache.remove(diskKey);
         } catch (IOException e) {
-            // Ignore
+            e.printStackTrace();
         }
 
         lock.unlock();
 
         releaseLock(diskKey, lock);
+        return result;
     }
 
 
