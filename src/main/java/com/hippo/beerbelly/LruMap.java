@@ -20,23 +20,24 @@ import android.support.annotation.NonNull;
 import android.support.annotation.VisibleForTesting;
 import android.util.Log;
 
-import com.hippo.yorozuya.sparse.SparseJLArray;
-import com.hippo.yorozuya.sparse.SparseLLArray;
+import com.hippo.yorozuya.ArrayUtils;
+import com.hippo.yorozuya.sparse.ContainerHelpers;
 
-import java.util.Comparator;
+import java.util.HashMap;
+import java.util.Map;
 
 public class LruMap<K, V> {
 
     private static final String TAG = LruMap.class.getSimpleName();
 
-    private SparseLLArray<K, Entry<K, V>> mMap;
-    private SparseJLArray<Entry<K, V>> mTimeoutMap;
+    private final Map<K, Entry<K, V>> mMap;
+    private DuplicateJLMap<Entry<K, V>> mTimeoutMap;
 
     private Entry<K, V> mHead = null;
     private Entry<K, V> mTail = null;
 
-    private long mTimeout;
-    private boolean mSupportTimeout;
+    private final long mTimeout;
+    private final boolean mSupportTimeout;
 
     public static class Entry<K, V> {
         public K key;
@@ -46,20 +47,19 @@ public class LruMap<K, V> {
         private Entry<K, V> next = null;
     }
 
-    public LruMap(Comparator<K> comparator) {
-        this(comparator, 0);
+    public LruMap() {
+        this(0);
     }
 
     /**
-     * @param comparator help order item and binary search
      * @param timeout 0 or negation for no time out
      */
-    public LruMap(Comparator<K> comparator, long timeout) {
-        mMap = new SparseLLArray<>(comparator);
+    public LruMap(long timeout) {
+        mMap = new HashMap<>();
         mTimeout = timeout;
         mSupportTimeout = timeout > 0;
         if (mSupportTimeout) {
-            mTimeoutMap = new SparseJLArray<>();
+            mTimeoutMap = new DuplicateJLMap<>();
         }
     }
 
@@ -111,17 +111,9 @@ public class LruMap<K, V> {
             return;
         }
 
-        int removeSize;
-        int index = mTimeoutMap.indexOfKey(System.currentTimeMillis());
-        if (index < 0) {
-            index = ~index;
-            if (index > mTimeoutMap.size() || index <= 0) {
-                // None item is expired
-                return;
-            }
-            removeSize = index;
-        } else {
-            removeSize = index + 1;
+        int removeSize = mTimeoutMap.getRemoveSize(System.currentTimeMillis());
+        if (removeSize <= 0) {
+            return;
         }
 
         for (int i = 0; i < removeSize; i++) {
@@ -132,47 +124,41 @@ public class LruMap<K, V> {
             // Remove it from map
             mMap.remove(entry.key);
         }
-        mTimeoutMap.removeAtRange(0, index);
+        mTimeoutMap.removeAtRange(0, removeSize);
     }
 
     public V get(@NonNull K key) {
         trimToTimeout();
 
-        int index = mMap.indexOfKey(key);
-        if (index < 0) {
+        Entry<K, V> entry = mMap.get(key);
+        if (null != entry) {
+            frontEntry(entry);
+            return entry.value;
+        } else {
             return null;
         }
-
-        Entry<K, V> entry = mMap.valueAt(index);
-        frontEntry(entry);
-        return entry.value;
     }
 
     /**
      * @return Old value or null
      */
-    public V put(K key, V value) {
+    public V put(@NonNull K key, @NonNull V value) {
         trimToTimeout();
 
-        Entry<K, V> oldEntry = null;
+        Entry<K, V> oldEntry;
         V oldValue = null;
 
         // Check is the key in the map
-        int index = mMap.indexOfKey(key);
-        if (index >= 0) {
-            oldEntry = mMap.valueAt(index);
+        oldEntry = mMap.remove(key);
+        if (oldEntry != null) {
+            // Get old value
             oldValue = oldEntry.value;
-            if (oldValue == value) {
-                // The old value is the new value
-                // Just put it to the head
-                frontEntry(oldEntry);
-                return null;
-            }
-
-            // Remove old one from map
-            mMap.removeAt(index);
             // Remove old one from list
             removeEntry(oldEntry);
+            // Remove from time map
+            if (mSupportTimeout) {
+                mTimeoutMap.delete(oldEntry.expired, oldEntry);
+            }
             oldEntry.key = null;
             oldEntry.value = null;
         }
@@ -204,21 +190,21 @@ public class LruMap<K, V> {
         trimToTimeout();
 
         // Find it
-        int index = mMap.indexOfKey(key);
-        if (index < 0) {
-            // Can't find it
+        Entry<K, V> entry = mMap.remove(key);
+        if (null != entry) {
+            // Remove it from list
+            removeEntry(entry);
+            // Remove from time map
+            if (mSupportTimeout) {
+                mTimeoutMap.delete(entry.expired, entry);
+            }
+            entry.key = null;
+            V value = entry.value;
+            entry.value = null;
+            return value;
+        } else {
             return null;
         }
-
-        Entry<K, V> entry = mMap.valueAt(index);
-        // Remove it from map
-        mMap.removeAt(index);
-        // Remove it from list
-        removeEntry(entry);
-        entry.key = null;
-        V value = entry.value;
-        entry.value = null;
-        return value;
     }
 
     public Entry<K, V> removeTail() {
@@ -252,5 +238,151 @@ public class LruMap<K, V> {
         int size = 0;
         for (Entry entry = mHead; entry != null; entry = entry.next, size++);
         return size;
+    }
+
+    // Looks like SparseArray, but key is long and can be duplicate.
+    private static class DuplicateJLMap<E> {
+
+        // TODO Is it good for performance
+        private static final Object DELETED = new Object();
+        private boolean mGarbage = false;
+
+        private long[] mKeys;
+        private Object[] mValues;
+        private int mSize;
+
+        public DuplicateJLMap() {
+            this(10);
+        }
+
+        public DuplicateJLMap(int initialCapacity) {
+            mKeys = new long[initialCapacity];
+            mValues = new Object[initialCapacity];
+            mSize = 0;
+        }
+
+        private void gc() {
+            int n = mSize;
+            int o = 0;
+            long[] keys = mKeys;
+            Object[] values = mValues;
+
+            for (int i = 0; i < n; i++) {
+                Object val = values[i];
+
+                if (val != DELETED) {
+                    if (i != o) {
+                        keys[o] = keys[i];
+                        values[o] = val;
+                        values[i] = null;
+                    }
+
+                    o++;
+                }
+            }
+
+            mGarbage = false;
+            mSize = o;
+        }
+
+        public void delete(long key, E o) {
+            int index = ContainerHelpers.binarySearch(mKeys, mSize, key);
+
+            if (index >= 0) {
+                // Key can be duplicate, so test both side
+                for (int i = index; index < mSize; i++) {
+                    if (key != mKeys[i]) {
+                        break;
+                    }
+                    if (o == mValues[i]) {
+                        mValues[i] = DELETED;
+                        mGarbage = true;
+                        return;
+                    }
+                }
+                for (int i = index - 1; index >= 0; i--) {
+                    if (key != mKeys[i]) {
+                        break;
+                    }
+                    if (o == mValues[i]) {
+                        mValues[i] = DELETED;
+                        mGarbage = true;
+                        return;
+                    }
+                }
+            }
+        }
+
+        public void put(long key, E value) {
+            int index = ContainerHelpers.binarySearch(mKeys, mSize, key);
+            if (index < 0) {
+                index = ~index;
+            }
+
+            if (index < mSize && mValues[index] == DELETED) {
+                mKeys[index] = key;
+                mValues[index] = value;
+                return;
+            }
+
+            if (mGarbage && mSize >= mKeys.length) {
+                gc();
+
+                // Search again because indices may have changed.
+                index = ContainerHelpers.binarySearch(mKeys, mSize, key);
+                if (index < 0) {
+                    index = ~index;
+                }
+            }
+
+            mKeys = ArrayUtils.insert(mKeys, mSize, index, key);
+            mValues = ArrayUtils.insert(mValues, mSize, index, value);
+            mSize++;
+        }
+
+        @SuppressWarnings("unchecked")
+        public E valueAt(int index) {
+            if (mGarbage) {
+                gc();
+            }
+
+            return (E) mValues[index];
+        }
+
+        public void removeAtRange(int index, int size) {
+            final int end = Math.min(mSize, index + size);
+            for (int i = index; i < end; i++) {
+                removeAt(i);
+            }
+        }
+
+        public void removeAt(int index) {
+            if (mValues[index] != DELETED) {
+                mValues[index] = DELETED;
+                mGarbage = true;
+            }
+        }
+
+        public int getRemoveSize(long l) {
+            if (mGarbage) {
+                gc();
+            }
+
+            int index = ContainerHelpers.binarySearch(mKeys, mSize, l);
+            if (index < 0) {
+                index = ~index;
+                if (index > mSize || index <= 0) {
+                    // None item is expired
+                    return 0;
+                }
+            } else {
+                for (index++; index < mSize; index++) {
+                    if (l != mKeys[index]) {
+                        break;
+                    }
+                }
+            }
+            return index;
+        }
     }
 }

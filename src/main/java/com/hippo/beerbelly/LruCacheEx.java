@@ -16,15 +16,13 @@
 
 package com.hippo.beerbelly;
 
-import java.util.Comparator;
-
 public class LruCacheEx<K, V> {
 
-    private LruMap<K, V> mLruMap;
+    private final LruMap<K, V> mLruMap;
 
     /** Size of this cache in units. Not necessarily the number of elements. */
     private int mSize;
-    private int mMaxSize;
+    private final int mMaxSize;
 
     private int mPutCount;
     private int mCreateCount;
@@ -32,21 +30,15 @@ public class LruCacheEx<K, V> {
     private int mHitCount;
     private int mMissCount;
 
-    /**
-     * @param comparator To help sequence the key for quick query
-     */
-    public LruCacheEx(int maxSize, Comparator<K> comparator) {
-        this(maxSize, 0, comparator);
+    public LruCacheEx(int maxSize) {
+        this(maxSize, 0);
     }
 
-    /**
-     * @param comparator To help sequence the key for quick query
-     */
-    public LruCacheEx(int maxSize, long timeout, Comparator<K> comparator) {
+    public LruCacheEx(int maxSize, long timeout) {
         if (maxSize <= 0) {
             throw new IllegalArgumentException("maxSize <= 0");
         }
-        mLruMap = new LruMap<>(comparator, timeout);
+        mLruMap = new LruMap<>(timeout);
         mSize = 0;
         mMaxSize = maxSize;
     }

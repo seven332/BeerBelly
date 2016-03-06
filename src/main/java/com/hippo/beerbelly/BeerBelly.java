@@ -29,13 +29,12 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.Comparator;
 
 public abstract class BeerBelly<V> {
 
     private static final String TAG = BeerBelly.class.getSimpleName();
 
-    private MemoryCahce<V> mMemoryCache;
+    private MemoryCache<V> mMemoryCache;
     private @Nullable DiskCache<V> mDiskCache;
 
     private final boolean mHasMemoryCache;
@@ -56,7 +55,7 @@ public abstract class BeerBelly<V> {
     }
 
     private void initMemoryCache(int maxSize) {
-        mMemoryCache = new MemoryCahce<>(maxSize, this);
+        mMemoryCache = new MemoryCache<>(maxSize, this);
     }
 
     private void initDiskCache(File cacheDir, int maxSize) {
@@ -331,32 +330,17 @@ public abstract class BeerBelly<V> {
                 if (diskCacheMaxSize <= 0) {
                     throw new IllegalStateException("Disk cache max size must be bigger than 0.");
                 }
-                // TODO Check is disk cache dir vaild
+                // TODO Check is disk cache dir valid
             }
         }
     }
 
-    private static final Comparator<String> sStringComparator = new Comparator<String>() {
-        @Override
-        public int compare(String lhs, String rhs) {
-            if (lhs == null) {
-                return -1;
-            } else if ( rhs == null ) {
-                return 1;
-            } else if (lhs.equals(rhs)) {
-                return 0;
-            } else {
-                return lhs.compareTo(rhs);
-            }
-        }
-    };
-
-    public class MemoryCahce<E> extends LruCacheEx<String, E> {
+    public class MemoryCache<E> extends LruCacheEx<String, E> {
 
         public BeerBelly<E> mParent;
 
-        public MemoryCahce(int maxSize, BeerBelly<E> parent) {
-            super(maxSize, sStringComparator);
+        public MemoryCache(int maxSize, BeerBelly<E> parent) {
+            super(maxSize);
             mParent = parent;
         }
 
@@ -380,11 +364,11 @@ public abstract class BeerBelly<V> {
 
         private static final int IO_BUFFER_SIZE = 8 * 1024;
 
-        private SimpleDiskCache mDiskCache;
-        private BeerBelly<E> mParent;
+        private final SimpleDiskCache mDiskCache;
+        private final BeerBelly<E> mParent;
 
-        private File mCacheDir;
-        private int mMaxSize;
+        private final File mCacheDir;
+        private final int mMaxSize;
 
         public DiskCache(File cacheDir, int size, BeerBelly<E> parent) throws IOException {
             mDiskCache = new SimpleDiskCache(cacheDir, size);
