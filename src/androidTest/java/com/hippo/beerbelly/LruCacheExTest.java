@@ -19,17 +19,10 @@ package com.hippo.beerbelly;
 import junit.framework.Assert;
 import junit.framework.TestCase;
 
-import java.util.Comparator;
-
 public class LruCacheExTest extends TestCase {
 
     public void testLruCacheEx() {
-        LruCacheEx<Integer, String> cache = new LruCacheEx<Integer, String>(100, new Comparator<Integer>() {
-            @Override
-            public int compare(Integer lhs, Integer rhs) {
-                return lhs - rhs;
-            }
-        })
+        LruCacheEx<Integer, String> cache = new LruCacheEx<Integer, String>(100)
         {
             @Override
             protected boolean canBeRemoved(Integer key, String value) {
