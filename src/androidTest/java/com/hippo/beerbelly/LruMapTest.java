@@ -18,19 +18,10 @@ package com.hippo.beerbelly;
 
 import junit.framework.TestCase;
 
-import java.util.Comparator;
-
 public class LruMapTest extends TestCase {
 
-    private Comparator<Integer> mIntegerComparator = new Comparator<Integer>() {
-        @Override
-        public int compare(Integer lhs, Integer rhs) {
-            return lhs - rhs;
-        }
-    };
-
     public void testLruMap() {
-        LruMap<Integer, String> lruMap = new LruMap<>(mIntegerComparator);
+        LruMap<Integer, String> lruMap = new LruMap<>();
 
         lruMap.put(1, "121");
         lruMap.put(1, "12");
