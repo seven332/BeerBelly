@@ -50,13 +50,18 @@ public class SimpleDiskCache {
 
     private volatile int mDiskCacheState;
 
+    @Nullable
     private DiskLruCache mDiskLruCache;
 
-    public SimpleDiskCache(File cacheDir, int size) throws IOException {
+    public SimpleDiskCache(File cacheDir, int size) {
         mCacheDir = cacheDir;
         mSize = size;
 
-        init();
+        try {
+            init();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     public boolean isValid() {
@@ -75,7 +80,7 @@ public class SimpleDiskCache {
 
     public long size() {
         synchronized (mDiskCacheLock) {
-            if (!isValid()) {
+            if (null != mDiskLruCache) {
                 return mDiskLruCache.size();
             } else {
                 return -1L;
@@ -95,7 +100,7 @@ public class SimpleDiskCache {
             }
             mDiskCacheState = STATE_DISK_CACHE_BUSY;
 
-            if (isValid()) {
+            if (null != mDiskLruCache) {
                 try {
                     mDiskLruCache.flush();
                 } catch (IOException e) {
@@ -112,7 +117,7 @@ public class SimpleDiskCache {
     public boolean clear() {
         boolean result = true;
         synchronized (mDiskCacheLock) {
-            if (!isValid()) {
+            if (null == mDiskLruCache) {
                 return false;
             }
 
@@ -189,7 +194,7 @@ public class SimpleDiskCache {
 
         CounterLock lock = obtainLock(diskKey);
 
-        if (!isValid()) {
+        if (null == mDiskLruCache) {
             releaseLock(diskKey, lock);
             return false;
         }
@@ -222,7 +227,7 @@ public class SimpleDiskCache {
 
         CounterLock lock = obtainLock(diskKey);
 
-        if (!isValid()) {
+        if (null == mDiskLruCache) {
             releaseLock(diskKey, lock);
             return false;
         }
@@ -280,6 +285,10 @@ public class SimpleDiskCache {
     }
 
     private boolean putToDisk(String key, InputStream is) {
+        if (null == mDiskLruCache) {
+            return false;
+        }
+
         DiskLruCache.Editor editor = null;
         OutputStream os = null;
         boolean completeEdit = false;
@@ -390,6 +399,9 @@ public class SimpleDiskCache {
             if (mCurrentSnapshot != null) {
                 throw new IllegalStateException("Please close it before reopen");
             }
+            if (null == mDiskLruCache) {
+                throw new IOException("Can't find disk lru cache");
+            }
 
             DiskLruCache.Snapshot snapshot;
             snapshot = mDiskLruCache.get(mKey);
@@ -445,6 +457,9 @@ public class SimpleDiskCache {
             }
             if (mCurrentEditor != null) {
                 throw new IllegalStateException("Please close it before reopen");
+            }
+            if (null == mDiskLruCache) {
+                throw new IOException("Can't find disk lru cache");
             }
 
             DiskLruCache.Editor editor = mDiskLruCache.edit(mKey);
