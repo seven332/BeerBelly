@@ -25,11 +25,6 @@ public class LruCacheExTest extends TestCase {
         LruCacheEx<Integer, String> cache = new LruCacheEx<Integer, String>(100)
         {
             @Override
-            protected boolean canBeRemoved(Integer key, String value) {
-                return true;
-            }
-
-            @Override
             protected void entryRemoved(boolean evicted, Integer key, String oldValue, String newValue) {
                 Assert.assertEquals(50, (int) key);
             }

@@ -42,8 +42,8 @@ public class SimpleDiskCache {
     private static final int STATE_DISK_CACHE_IN_USE = 1;
     private static final int STATE_DISK_CACHE_BUSY = 2;
 
-    private File mCacheDir;
-    private int mSize;
+    private final File mCacheDir;
+    private final int mSize;
 
     private final Object mDiskCacheLock = new Object();
     private final Map<String, CounterLock> mDiskCacheLockMap = new HashMap<>();
@@ -353,7 +353,7 @@ public class SimpleDiskCache {
 
     class CacheInputStreamPipe implements InputStreamPipe {
 
-        private String mKey;
+        private final String mKey;
         private CounterLock mLock;
         private DiskLruCache.Snapshot mCurrentSnapshot;
 
@@ -409,7 +409,7 @@ public class SimpleDiskCache {
 
     class CacheOutputStreamPipe implements OutputStreamPipe {
 
-        private String mKey;
+        private final String mKey;
         private CounterLock mLock;
         private DiskLruCache.Editor mCurrentEditor;
 

@@ -24,12 +24,6 @@ public class LruCacheEx<K, V> {
     private int mSize;
     private final int mMaxSize;
 
-    private int mPutCount;
-    private int mCreateCount;
-    private int mEvictionCount;
-    private int mHitCount;
-    private int mMissCount;
-
     public LruCacheEx(int maxSize) {
         this(maxSize, 0);
     }
@@ -74,10 +68,8 @@ public class LruCacheEx<K, V> {
         synchronized (this) {
             mapValue = mLruMap.get(key);
             if (mapValue != null) {
-                mHitCount++;
                 return mapValue;
             }
-            mMissCount++;
             return null;
         }
     }
@@ -95,7 +87,6 @@ public class LruCacheEx<K, V> {
 
         V previous;
         synchronized (this) {
-            mPutCount++;
             mSize += safeSizeOf(key, value);
             previous = mLruMap.put(key, value);
             if (previous != null) {
@@ -107,12 +98,8 @@ public class LruCacheEx<K, V> {
             entryRemoved(false, key, previous, value);
         }
 
-        trimToSize(mMaxSize, value);
+        trimToSize(mMaxSize);
         return previous;
-    }
-
-    public void trimToSize(int maxSize) {
-        trimToSize(maxSize, null);
     }
 
     /**
@@ -122,13 +109,7 @@ public class LruCacheEx<K, V> {
      * @param maxSize the maximum size of the cache before returning. May be -1
      *            to evict even 0-sized elements.
      */
-    public void trimToSize(int maxSize, V keepValue) {
-        int count;
-        int skipTimes = 0;
-        synchronized (this) {
-            count = mLruMap.size();
-        }
-
+    public void trimToSize(int maxSize) {
         while (true) {
             K key;
             V value;
@@ -138,11 +119,7 @@ public class LruCacheEx<K, V> {
                             + ".sizeOf() is reporting inconsistent results!");
                 }
 
-                if (mSize <= maxSize) {
-                    break;
-                }
-
-                if (skipTimes == count) {
+                if (mSize <= maxSize || mLruMap.isEmpty()) {
                     break;
                 }
 
@@ -153,16 +130,10 @@ public class LruCacheEx<K, V> {
 
                 key = toEvict.key;
                 value = toEvict.value;
-                if (canBeRemoved(key, value) && keepValue != value) {
-                    mSize -= safeSizeOf(key, value);
-                    mEvictionCount++;
-                    entryRemoved(true, key, value, null);
-                } else {
-                    // Can not remove it, put it back
-                    mLruMap.put(key, value);
-                    skipTimes++;
-                }
+                mSize -= safeSizeOf(key, value);
             }
+
+            entryRemoved(true, key, value, null);
         }
     }
 
@@ -225,10 +196,6 @@ public class LruCacheEx<K, V> {
      */
     protected int sizeOf(K key, V value) {
         return 1;
-    }
-
-    protected boolean canBeRemoved(K key, V value) {
-        return true;
     }
 
     /**

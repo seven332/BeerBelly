@@ -18,6 +18,7 @@ package com.hippo.beerbelly;
 
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.v4.util.LruCache;
 import android.util.Log;
 
 import com.hippo.yorozuya.IOUtils;
@@ -41,7 +42,7 @@ public abstract class BeerBelly<V> {
     private final boolean mHasDiskCache;
 
     public BeerBelly(BeerBellyParams params) {
-        params.isVaild();
+        params.isValid();
         mHasMemoryCache = params.hasMemoryCache;
         mHasDiskCache = params.hasDiskCache;
 
@@ -72,8 +73,6 @@ public abstract class BeerBelly<V> {
     protected abstract void memoryEntryAdded(V value);
 
     protected abstract void memoryEntryRemoved(boolean evicted, String key, V oldValue, V newValue);
-
-    protected abstract boolean canBeRemoved(String key, V value);
 
     protected abstract V read(@NonNull InputStreamPipe isPipe);
 
@@ -314,7 +313,7 @@ public abstract class BeerBelly<V> {
          *
          * @throws IllegalStateException
          */
-        public void isVaild() throws IllegalStateException {
+        public void isValid() throws IllegalStateException {
             if (!hasMemoryCache && !hasDiskCache) {
                 throw new IllegalStateException("No memory cache and no disk cache. What can I do for you?");
             }
@@ -335,7 +334,7 @@ public abstract class BeerBelly<V> {
         }
     }
 
-    public class MemoryCache<E> extends LruCacheEx<String, E> {
+    public class MemoryCache<E> extends LruCache<String, E> {
 
         public BeerBelly<E> mParent;
 
@@ -352,11 +351,6 @@ public abstract class BeerBelly<V> {
         @Override
         protected void entryRemoved(boolean evicted, String key, E oldValue, E newValue) {
             mParent.memoryEntryRemoved(evicted, key, oldValue, newValue);
-        }
-
-        @Override
-        protected boolean canBeRemoved(String key, E value) {
-            return mParent.canBeRemoved(key, value);
         }
     }
 
