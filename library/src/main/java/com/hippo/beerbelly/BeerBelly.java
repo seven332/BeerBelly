@@ -78,6 +78,20 @@ public abstract class BeerBelly<V> {
 
     protected abstract boolean write(OutputStream os, V value);
 
+    @Nullable
+    public LruCache<String, V> getMemoryCache() {
+        return mMemoryCache;
+    }
+
+    @Nullable
+    public SimpleDiskCache getDiskCache() {
+        if (mDiskCache != null) {
+            return mDiskCache.mDiskCache;
+        } else {
+            return null;
+        }
+    }
+
     /**
      * Check if have memory cache
      *
@@ -368,7 +382,7 @@ public abstract class BeerBelly<V> {
         }
     }
 
-    public class MemoryCache<E> extends LruCache<String, E> {
+    private class MemoryCache<E> extends LruCache<String, E> {
 
         public BeerBelly<E> mParent;
 
@@ -388,7 +402,7 @@ public abstract class BeerBelly<V> {
         }
     }
 
-    public static class DiskCache<E> {
+    private static class DiskCache<E> {
 
         private static final int IO_BUFFER_SIZE = 8 * 1024;
 
