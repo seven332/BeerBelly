@@ -69,6 +69,17 @@ public class LruCache<K, V> {
     }
 
     /**
+     * Close the cache. If a value is put, it will be removed at once.
+     * Resize to reopen the cache.
+     */
+    public void close() {
+        synchronized (this) {
+            this.maxSize = -1;
+        }
+        trimToSize(maxSize);
+    }
+
+    /**
      * Returns the value for {@code key} if it exists in the cache or can be
      * created by {@code #create}. If a value was returned, it is moved to the
      * head of the queue. This returns null if a value is not cached and cannot
