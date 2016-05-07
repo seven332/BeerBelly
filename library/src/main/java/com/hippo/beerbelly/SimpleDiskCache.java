@@ -175,9 +175,13 @@ public class SimpleDiskCache {
 
     private void releaseLock(String key, ReentrantReadWriteLock lock) {
         synchronized (mDiskCacheLock) {
-            if (!lock.isWriteLocked()) {
-                mDiskCacheLockMap.remove(key);
-                mLockPool.push(lock);
+            if (lock.writeLock().tryLock()) {
+                try {
+                    mDiskCacheLockMap.remove(key);
+                    mLockPool.push(lock);
+                } finally {
+                    lock.writeLock().unlock();
+                }
             }
 
             if (mDiskCacheLockMap.isEmpty()) {
