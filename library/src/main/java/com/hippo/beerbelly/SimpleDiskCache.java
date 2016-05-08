@@ -37,22 +37,32 @@ public class SimpleDiskCache {
 
     private static final String TAG = SimpleDiskCache.class.getSimpleName();
 
+    /**
+     * Disk cache is free
+     */
     private static final int STATE_DISK_CACHE_NONE = 0;
+
+    /**
+     * Disk cache is flushing or clearing
+     */
     private static final int STATE_DISK_CACHE_IN_USE = 1;
+
+    /**
+     * Disk cache is reading or writing
+     */
     private static final int STATE_DISK_CACHE_BUSY = 2;
 
     private final File mCacheDir;
     private final int mSize;
 
-    private final Object mDiskCacheLock = new Object();
-    private final Map<String, ReentrantReadWriteLock> mDiskCacheLockMap = new HashMap<>();
-
-    private volatile int mDiskCacheState;
+    private int mDiskCacheState;
 
     @Nullable
     private DiskLruCache mDiskLruCache;
-
-    private final Pool mLockPool = new Pool(5);
+    @NonNull
+    private final Map<String, CounterLock> mLockMap = new HashMap<>();
+    @NonNull
+    private final LockPool mLockPool = new LockPool();
 
     public SimpleDiskCache(File cacheDir, int size) {
         mCacheDir = cacheDir;
@@ -65,135 +75,120 @@ public class SimpleDiskCache {
         }
     }
 
-    public boolean isValid() {
-        synchronized (mDiskCacheLock) {
-            return mDiskLruCache != null;
+    public synchronized boolean isValid() {
+        return mDiskLruCache != null;
+    }
+
+    private synchronized void init() throws IOException {
+        if (!isValid()) {
+            mDiskLruCache = DiskLruCache.open(mCacheDir, 1, 1, mSize);
         }
     }
 
-    private void init() throws IOException {
-        synchronized (mDiskCacheLock) {
-            if (!isValid()) {
-                mDiskLruCache = DiskLruCache.open(mCacheDir, 1, 1, mSize);
-            }
+    public synchronized long size() {
+        if (null != mDiskLruCache) {
+            return mDiskLruCache.size();
+        } else {
+            return -1L;
         }
     }
 
-    public long size() {
-        synchronized (mDiskCacheLock) {
-            if (null != mDiskLruCache) {
-                return mDiskLruCache.size();
-            } else {
-                return -1L;
+    public synchronized void flush() {
+        // Wait for cache available
+        while (mDiskCacheState != STATE_DISK_CACHE_NONE) {
+            try {
+                wait();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
             }
         }
-    }
+        mDiskCacheState = STATE_DISK_CACHE_BUSY;
 
-    public void flush() {
-        synchronized (mDiskCacheLock) {
-            // Wait for cache available
-            while (mDiskCacheState != STATE_DISK_CACHE_NONE) {
-                try {
-                    mDiskCacheLock.wait();
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
+        if (null != mDiskLruCache) {
+            try {
+                mDiskLruCache.flush();
+            } catch (IOException e) {
+                Log.e(TAG, "SimpleDiskCache flush", e);
             }
-            mDiskCacheState = STATE_DISK_CACHE_BUSY;
-
-            if (null != mDiskLruCache) {
-                try {
-                    mDiskLruCache.flush();
-                } catch (IOException e) {
-                    Log.e(TAG, "SimpleDiskCache flush", e);
-                }
-            }
-
-            mDiskCacheState = STATE_DISK_CACHE_NONE;
-            mDiskCacheLock.notifyAll();
         }
+
+        mDiskCacheState = STATE_DISK_CACHE_NONE;
+        notifyAll();
     }
 
-    public boolean clear() {
+    public synchronized boolean clear() {
         boolean result = true;
-        synchronized (mDiskCacheLock) {
-            if (null == mDiskLruCache) {
-                return false;
-            }
-
-            // Wait for cache available
-            while (mDiskCacheState != STATE_DISK_CACHE_NONE) {
-                try {
-                    mDiskCacheLock.wait();
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
-            mDiskCacheState = STATE_DISK_CACHE_BUSY;
-
-            try {
-                mDiskLruCache.delete();
-            } catch (IOException e) {
-                Log.e(TAG, "SimpleDiskCache clearCache", e);
-            }
-            mDiskLruCache = null;
-            try {
-                init();
-            } catch (IOException e) {
-                Log.e(TAG, "SimpleDiskCache init", e);
-                result = false;
-            }
-
-            mDiskCacheState = STATE_DISK_CACHE_NONE;
-            mDiskCacheLock.notifyAll();
+        if (null == mDiskLruCache) {
+            return false;
         }
+
+        // Wait for cache available
+        while (mDiskCacheState != STATE_DISK_CACHE_NONE) {
+            try {
+                wait();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+        mDiskCacheState = STATE_DISK_CACHE_BUSY;
+
+        try {
+            mDiskLruCache.delete();
+        } catch (IOException e) {
+            Log.e(TAG, "SimpleDiskCache clearCache", e);
+        }
+        mDiskLruCache = null;
+        try {
+            init();
+        } catch (IOException e) {
+            Log.e(TAG, "SimpleDiskCache init", e);
+            result = false;
+        }
+
+        mDiskCacheState = STATE_DISK_CACHE_NONE;
+        notifyAll();
         return result;
     }
 
-    private ReentrantReadWriteLock obtainLock(String key) {
-        ReentrantReadWriteLock lock;
-        synchronized (mDiskCacheLock) {
-            // Wait for clear over
-            while (mDiskCacheState == STATE_DISK_CACHE_BUSY) {
-                try {
-                    mDiskCacheLock.wait();
-                } catch (InterruptedException e) {
-                    // Empty
-                }
-            }
-            mDiskCacheState = STATE_DISK_CACHE_IN_USE;
-
-            // Get lock from key
-            lock = mDiskCacheLockMap.get(key);
-            if (lock == null) {
-                lock = mLockPool.get();
-                mDiskCacheLockMap.put(key, lock);
+    private synchronized CounterLock obtainLock(String key) {
+        // Wait for clear over
+        while (mDiskCacheState == STATE_DISK_CACHE_BUSY) {
+            try {
+                wait();
+            } catch (InterruptedException e) {
+                // Empty
             }
         }
+        mDiskCacheState = STATE_DISK_CACHE_IN_USE;
+
+        // Get lock from key
+        CounterLock lock;
+        lock = mLockMap.get(key);
+        if (lock == null) {
+            lock = mLockPool.get();
+            mLockMap.put(key, lock);
+        }
+        lock.obtain();
+
         return lock;
     }
 
-    private void releaseLock(String key, ReentrantReadWriteLock lock) {
-        synchronized (mDiskCacheLock) {
-            if (lock.writeLock().tryLock()) {
-                try {
-                    mDiskCacheLockMap.remove(key);
-                    mLockPool.push(lock);
-                } finally {
-                    lock.writeLock().unlock();
-                }
-            }
+    private synchronized void releaseLock(String key, CounterLock lock) {
+        lock.release();
+        if (lock.isFree()) {
+            mLockMap.remove(key);
+            mLockPool.push(lock);
+        }
 
-            if (mDiskCacheLockMap.isEmpty()) {
-                mDiskCacheState = STATE_DISK_CACHE_NONE;
-                mDiskCacheLock.notifyAll();
-            }
+        if (mLockMap.isEmpty()) {
+            mDiskCacheState = STATE_DISK_CACHE_NONE;
+            notifyAll();
         }
     }
 
     public boolean contain(@NonNull String key) {
         String diskKey = hashKeyForDisk(key);
-        ReentrantReadWriteLock lock = obtainLock(diskKey);
+        CounterLock lock = obtainLock(diskKey);
         if (null == mDiskLruCache) {
             releaseLock(diskKey, lock);
             return false;
@@ -210,7 +205,7 @@ public class SimpleDiskCache {
 
     public boolean remove(@NonNull String key) {
         String diskKey = hashKeyForDisk(key);
-        ReentrantReadWriteLock lock = obtainLock(diskKey);
+        CounterLock lock = obtainLock(diskKey);
         if (null == mDiskLruCache) {
             releaseLock(diskKey, lock);
             return false;
@@ -231,30 +226,9 @@ public class SimpleDiskCache {
         return result;
     }
 
-
-    /**
-     * @param key the key of the target
-     * @return the InputStreamPipe, <code>null</code> for missing
-     */
-    @Nullable
-    public InputStreamPipe getInputStreamPipe(@NonNull String key) {
-        if (contain(key)) {
-            String diskKey = hashKeyForDisk(key);
-            return new CacheInputStreamPipe(diskKey);
-        } else {
-            return null;
-        }
-    }
-
-    @NonNull
-    public OutputStreamPipe getOutputStreamPipe(@NonNull String key) {
-        String diskKey = hashKeyForDisk(key);
-        return new CacheOutputStreamPipe(diskKey);
-    }
-
     public boolean put(@NonNull String key, @NonNull InputStream is) {
         String diskKey = hashKeyForDisk(key);
-        ReentrantReadWriteLock lock = obtainLock(diskKey);
+        CounterLock lock = obtainLock(diskKey);
         if (null == mDiskLruCache) {
             releaseLock(diskKey, lock);
             return false;
@@ -309,6 +283,26 @@ public class SimpleDiskCache {
     }
 
     /**
+     * @param key the key of the target
+     * @return the InputStreamPipe, <code>null</code> for missing
+     */
+    @Nullable
+    public InputStreamPipe getInputStreamPipe(@NonNull String key) {
+        if (contain(key)) {
+            String diskKey = hashKeyForDisk(key);
+            return new CacheInputStreamPipe(diskKey);
+        } else {
+            return null;
+        }
+    }
+
+    @NonNull
+    public OutputStreamPipe getOutputStreamPipe(@NonNull String key) {
+        String diskKey = hashKeyForDisk(key);
+        return new CacheOutputStreamPipe(diskKey);
+    }
+
+    /**
      * A hashing method that changes a string (like a URL) into a hash suitable
      * for using as a disk filename.
      *
@@ -348,7 +342,7 @@ public class SimpleDiskCache {
     private class CacheInputStreamPipe implements InputStreamPipe {
 
         private final String mKey;
-        private ReentrantReadWriteLock mLock;
+        private CounterLock mLock;
         private DiskLruCache.Snapshot mCurrentSnapshot;
 
         private CacheInputStreamPipe(String key) {
@@ -407,7 +401,7 @@ public class SimpleDiskCache {
     private class CacheOutputStreamPipe implements OutputStreamPipe {
 
         private final String mKey;
-        private ReentrantReadWriteLock mLock;
+        private CounterLock mLock;
         private DiskLruCache.Editor mCurrentEditor;
 
         private CacheOutputStreamPipe(String key) {
@@ -481,34 +475,46 @@ public class SimpleDiskCache {
         }
     }
 
-    private class Pool {
+    private class CounterLock extends ReentrantReadWriteLock {
 
-        private final ReentrantReadWriteLock[] mArray;
-        private final int mMaxSize;
-        private int mSize;
+        private int mCount;
 
-        public Pool(int size) {
-            if (size <= 0) {
-                throw new IllegalStateException("Pool size must > 0, it is " + size);
-            }
-            mArray = new ReentrantReadWriteLock[size];
-            mMaxSize = size;
-            mSize = 0;
+        public boolean isFree() {
+            return mCount == 0;
         }
 
-        public void push(ReentrantReadWriteLock lock) {
+        public void release() {
+            if (--mCount < 0) {
+                throw new IllegalStateException("Release time is more than occupy time");
+            }
+        }
+
+        public void obtain() {
+            ++mCount;
+        }
+    }
+
+    private class LockPool {
+
+        private static final int MAX_SIZE = 10;
+
+        private final CounterLock[] mArray = new CounterLock[MAX_SIZE];
+        private final int mMaxSize = MAX_SIZE;
+        private int mSize;
+
+        public void push(CounterLock lock) {
             if (lock != null && mSize < mMaxSize) {
                 mArray[mSize++] = lock;
             }
         }
 
-        public ReentrantReadWriteLock get() {
+        public CounterLock get() {
             if (mSize > 0) {
-                ReentrantReadWriteLock lock = mArray[--mSize];
+                CounterLock lock = mArray[--mSize];
                 mArray[mSize] = null;
                 return lock;
             } else {
-                return new ReentrantReadWriteLock();
+                return new CounterLock();
             }
         }
     }
