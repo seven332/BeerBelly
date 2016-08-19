@@ -144,6 +144,8 @@ public class LruCache<K, V> {
             throw new NullPointerException("key == null || value == null");
         }
 
+        onEntryAdded(key, value);
+
         V previous;
         synchronized (this) {
             putCount++;
@@ -219,6 +221,11 @@ public class LruCache<K, V> {
 
         return previous;
     }
+
+    /**
+     * Called for each entry when added to the cache
+     */
+    protected void onEntryAdded(K key, V value) {}
 
     /**
      * Called for entries that have been evicted or removed. This method is

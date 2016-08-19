@@ -70,7 +70,7 @@ public abstract class BeerBelly<V> {
 
     protected abstract int sizeOf(String key, V value);
 
-    protected abstract void memoryEntryAdded(V value);
+    protected abstract void memoryEntryAdded(String key, V value);
 
     protected abstract void memoryEntryRemoved(boolean evicted, String key, V oldValue, V newValue);
 
@@ -225,7 +225,6 @@ public abstract class BeerBelly<V> {
      */
     public boolean putToMemory(@NonNull String key, @NonNull V value) {
         if (mHasMemoryCache && mMemoryCache != null) {
-            memoryEntryAdded(value);
             mMemoryCache.put(key, value);
             return true;
         } else {
@@ -397,7 +396,12 @@ public abstract class BeerBelly<V> {
         }
 
         @Override
-        protected void entryRemoved(boolean evicted, String key, E oldValue, E newValue) {
+        protected void onEntryAdded(String key, E value) {
+            mParent.memoryEntryAdded(key, value);
+        }
+
+        @Override
+        protected void onEntryRemoved(boolean evicted, String key, E oldValue, E newValue) {
             mParent.memoryEntryRemoved(evicted, key, oldValue, newValue);
         }
     }
