@@ -125,7 +125,7 @@ public class LruCache<K, V> {
         }
 
         if (mapValue != null) {
-            entryRemoved(false, key, createdValue, mapValue);
+            onEntryRemoved(false, key, createdValue, mapValue);
             return mapValue;
         } else {
             trimToSize(maxSize);
@@ -155,7 +155,7 @@ public class LruCache<K, V> {
         }
 
         if (previous != null) {
-            entryRemoved(false, key, previous, value);
+            onEntryRemoved(false, key, previous, value);
         }
 
         trimToSize(maxSize);
@@ -191,7 +191,7 @@ public class LruCache<K, V> {
                 evictionCount++;
             }
 
-            entryRemoved(true, key, value, null);
+            onEntryRemoved(true, key, value, null);
         }
     }
 
@@ -214,7 +214,7 @@ public class LruCache<K, V> {
         }
 
         if (previous != null) {
-            entryRemoved(false, key, previous, null);
+            onEntryRemoved(false, key, previous, null);
         }
 
         return previous;
@@ -235,7 +235,7 @@ public class LruCache<K, V> {
      *     this removal was caused by a {@link #put}. Otherwise it was caused by
      *     an eviction or a {@link #remove}.
      */
-    protected void entryRemoved(boolean evicted, K key, V oldValue, V newValue) {}
+    protected void onEntryRemoved(boolean evicted, K key, V oldValue, V newValue) {}
 
     /**
      * Called after a cache miss to compute a value for the corresponding key.
@@ -246,7 +246,7 @@ public class LruCache<K, V> {
      * access the cache while this method is executing.
      *
      * <p>If a value for {@code key} exists in the cache when this method
-     * returns, the created value will be released with {@link #entryRemoved}
+     * returns, the created value will be released with {@link #onEntryRemoved}
      * and discarded. This can occur when multiple threads request the same key
      * at the same time (causing multiple values to be created), or when one
      * thread calls {@link #put} while another is creating a value for the same
@@ -276,7 +276,7 @@ public class LruCache<K, V> {
     }
 
     /**
-     * Clear the cache, calling {@link #entryRemoved} on each removed entry.
+     * Clear the cache, calling {@link #onEntryRemoved} on each removed entry.
      */
     public final void evictAll() {
         trimToSize(-1); // -1 will evict 0-sized elements
@@ -345,7 +345,8 @@ public class LruCache<K, V> {
         return new LinkedHashMap<K, V>(map);
     }
 
-    @Override public synchronized final String toString() {
+    @Override
+    public synchronized final String toString() {
         int accesses = hitCount + missCount;
         int hitPercent = accesses != 0 ? (100 * hitCount / accesses) : 0;
         return String.format("LruCache[maxSize=%d,hits=%d,misses=%d,hitRate=%d%%]",
