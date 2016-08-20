@@ -38,19 +38,14 @@ public abstract class BeerBelly<V> {
     @Nullable
     private DiskCache<V> mDiskCache;
 
-    private final boolean mHasMemoryCache;
-    private final boolean mHasDiskCache;
-
     public BeerBelly(BeerBellyParams params) {
         params.isValid();
-        mHasMemoryCache = params.hasMemoryCache;
-        mHasDiskCache = params.hasDiskCache;
 
-        if (mHasMemoryCache) {
+        if (params.hasMemoryCache) {
             initMemoryCache(params.memoryCacheMaxSize);
         }
 
-        if (mHasDiskCache) {
+        if (params.hasDiskCache) {
             initDiskCache(params.diskCacheDir, params.diskCacheMaxSize);
         }
     }
@@ -318,7 +313,7 @@ public abstract class BeerBelly<V> {
      * Flush disk cache.
      */
     public void flush() {
-        if (mHasDiskCache && mDiskCache != null) {
+        if (mDiskCache != null) {
             mDiskCache.flush();
         }
     }
