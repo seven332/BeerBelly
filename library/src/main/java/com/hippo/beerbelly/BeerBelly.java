@@ -78,11 +78,17 @@ public abstract class BeerBelly<V> {
 
     protected abstract boolean write(OutputStream os, V value);
 
+    /**
+     * Return the memory cache.
+     */
     @Nullable
     public LruCache<String, V> getMemoryCache() {
         return mMemoryCache;
     }
 
+    /**
+     * Return the disk cache.
+     */
     @Nullable
     public SimpleDiskCache getDiskCache() {
         if (mDiskCache != null) {
@@ -93,30 +99,24 @@ public abstract class BeerBelly<V> {
     }
 
     /**
-     * Check if have memory cache
-     *
-     * @return true if have memory cache
+     * Return true if has memory cache.
      */
     public boolean hasMemoryCache() {
-        return mHasMemoryCache;
+        return mMemoryCache != null;
     }
 
     /**
-     * Check if have disk cache
-     *
-     * @return true if have disk cache
+     * Return true if has disk cache.
      */
     public boolean hasDiskCache() {
-        return mHasDiskCache;
+        return mDiskCache != null;
     }
 
     /**
-     * Get memory cache usage size
-     *
-     * @return {@code -1} for no memory cache
+     * Return memory cache usage size. -1 for error.
      */
     public int memorySize() {
-        if (mHasMemoryCache && mMemoryCache != null) {
+        if (mMemoryCache != null) {
             return mMemoryCache.size();
         } else {
             return -1;
@@ -124,12 +124,10 @@ public abstract class BeerBelly<V> {
     }
 
     /**
-     * Get memory cache max size
-     *
-     * @return {@code -1} for no memory cache
+     * Return memory cache max size. -1 for error.
      */
     public int memoryMaxSize() {
-        if (mHasMemoryCache && mMemoryCache != null) {
+        if (mMemoryCache != null) {
             return mMemoryCache.maxSize();
         } else {
             return -1;
@@ -137,12 +135,10 @@ public abstract class BeerBelly<V> {
     }
 
     /**
-     * Get disk cache usage size
-     *
-     * @return {@code -1L} for no memory cache
+     * Return disk cache usage size. -1 for error.
      */
     public long diskSize() {
-        if (mHasDiskCache && mDiskCache != null) {
+        if (mDiskCache != null) {
             return mDiskCache.size();
         } else {
             return -1L;
@@ -150,12 +146,10 @@ public abstract class BeerBelly<V> {
     }
 
     /**
-     * Get disk cache max size
-     *
-     * @return {@code -1L} for no memory cache
+     * Return disk cache max size. -1 for error.
      */
     public long diskMaxSize() {
-        if (mHasDiskCache && mDiskCache != null) {
+        if (mDiskCache != null) {
             return mDiskCache.getMaxSize();
         } else {
             return -1L;
@@ -163,13 +157,12 @@ public abstract class BeerBelly<V> {
     }
 
     /**
-     * Get value from memory cache
-     *
-     * @param key the key to get value
-     * @return the value you get, null for miss or no memory cache
+     * Return value associated to the key from memory cache.
+     * Null for missing or no memory cache.
      */
+    @Nullable
     public V getFromMemory(@NonNull String key) {
-        if (mHasMemoryCache && mMemoryCache != null) {
+        if (mMemoryCache != null) {
             return mMemoryCache.get(key);
         } else {
             return null;
@@ -177,13 +170,13 @@ public abstract class BeerBelly<V> {
     }
 
     /**
-     * Get value from disk cache. Override {@link #read(InputStreamPipe)} to do it
-     *
-     * @param key the key to get value
-     * @return the value you get, null for miss or no memory cache or get error
+     * Return value associated to the key from disk cache.
+     * Null for missing or no disk cache or get error.
+     * Override {@link #read(InputStreamPipe)} to do it.
      */
+    @Nullable
     public V getFromDisk(@NonNull String key) {
-        if (mHasDiskCache && mDiskCache != null) {
+        if (mDiskCache != null) {
             return mDiskCache.get(key);
         } else {
             return null;
@@ -191,12 +184,11 @@ public abstract class BeerBelly<V> {
     }
 
     /**
-     * Get value from memory cache and disk cache. If miss in memory cache and
-     * get in disk cache, it will put value from disk cache to memory cache.
-     *
-     * @param key the key to get value
-     * @return the value you get
+     * Return value associated to the key from memory cache and disk cache.
+     * If miss in memory cache and get in disk cache,
+     * it will put value from disk cache to memory cache.
      */
+    @Nullable
     public V get(@NonNull String key) {
         V value = getFromMemory(key);
 
@@ -217,14 +209,10 @@ public abstract class BeerBelly<V> {
     }
 
     /**
-     * Put value to memory cache
-     *
-     * @param key the key
-     * @param value the value
-     * @return false if no memory cache
+     * Put the value to memory cache. Return true if done.
      */
     public boolean putToMemory(@NonNull String key, @NonNull V value) {
-        if (mHasMemoryCache && mMemoryCache != null) {
+        if (mMemoryCache != null) {
             mMemoryCache.put(key, value);
             return true;
         } else {
@@ -233,14 +221,10 @@ public abstract class BeerBelly<V> {
     }
 
     /**
-     * Put value to disk cache
-     *
-     * @param key the key
-     * @param value the value
-     * @return false if no disk cache or get error
+     * Put the value to disk cache. Return true if done.
      */
     public boolean putToDisk(@NonNull String key, @NonNull V value) {
-        if (mHasDiskCache && mDiskCache != null) {
+        if (mDiskCache != null) {
             return mDiskCache.put(key, value);
         } else {
             return false;
@@ -248,86 +232,95 @@ public abstract class BeerBelly<V> {
     }
 
     /**
-     * Put value to memory cache and disk cache
-     *
-     * @param key the key
-     * @param value the value
+     * Put the value to memory cache and disk cache.
      */
     public void put(@NonNull String key, @NonNull V value) {
         putToMemory(key, value);
         putToDisk(key, value);
     }
 
+    /**
+     * Remove the value associated to the key from memory cache.
+     */
     public void removeFromMemory(@NonNull String key) {
-        if (mHasMemoryCache && mMemoryCache != null) {
+        if (mMemoryCache != null) {
             mMemoryCache.remove(key);
         }
     }
 
+    /**
+     * Remove the value associated to the key from disk cache.
+     */
     public void removeFromDisk(@NonNull String key) {
-        if (mHasDiskCache && mDiskCache != null) {
+        if (mDiskCache != null) {
             mDiskCache.remove(key);
         }
     }
 
+    /**
+     * Remove the value associated to the key from memory cache and disk cache.
+     */
     public void remove(@NonNull String key) {
         removeFromMemory(key);
         removeFromDisk(key);
     }
 
-    public boolean pullFromDiskCache(@NonNull String key, @NonNull OutputStream os) {
-        if (mHasDiskCache && mDiskCache != null) {
-            return mDiskCache.pull(key, os);
-        } else {
-            return false;
-        }
-    }
-
     /**
-     *
-     * @param key the key
-     * @param is the input stream to store
-     * @return false if no disk cache or get error
+     * Pull raw data from disk cache to OutputStream.
      */
-    public boolean putRawToDisk(@NonNull String key, @NonNull InputStream is) {
-        if (mHasDiskCache && mDiskCache != null) {
-            return mDiskCache.putRaw(key, is);
+    public boolean pullRawFromDisk(@NonNull String key, @NonNull OutputStream os) {
+        if (mDiskCache != null) {
+            return mDiskCache.pullRaw(key, os);
         } else {
             return false;
         }
     }
 
     /**
-     * Evicts all of the items from the memory cache
+     * Push raw data from InputStream to disk cache.
+     */
+    public boolean pushRawToDisk(@NonNull String key, @NonNull InputStream is) {
+        if (mDiskCache != null) {
+            return mDiskCache.pushRaw(key, is);
+        } else {
+            return false;
+        }
+    }
+
+    /**
+     * Evicts all of the items from the memory cache.
      */
     public void clearMemory() {
-        if (mHasMemoryCache && mMemoryCache != null) {
+        if (mMemoryCache != null) {
             mMemoryCache.evictAll();
         }
     }
 
     /**
-     * Clear disk cache
+     * Clear disk cache.
      */
     public void clearDisk() {
-        if (mHasDiskCache && mDiskCache != null) {
+        if (mDiskCache != null) {
             mDiskCache.clear();
-        }
-    }
-
-    public void flush() {
-        if (mHasDiskCache && mDiskCache != null) {
-            mDiskCache.flush();
         }
     }
 
     /**
      * Evicts all of the items from the memory cache and lets the system know
-     * now would be a good time to garbage collect
+     * now would be a good time to garbage collect.
      */
     public void clear() {
         clearMemory();
         clearDisk();
+    }
+
+    /**
+     * Flush disk cache.
+     */
+    public void flush() {
+        if (mHasDiskCache && mDiskCache != null) {
+            mDiskCache.flush();
+        }
     }
 
     /**
@@ -470,15 +463,15 @@ public abstract class BeerBelly<V> {
             }
         }
 
-        public boolean putRaw(String key, InputStream is) {
-            return mDiskCache.put(key, is);
-        }
-
         public void remove(String key) {
             mDiskCache.remove(key);
         }
 
-        public boolean pull(@NonNull String key, @NonNull OutputStream os) {
+        public boolean pushRaw(String key, InputStream is) {
+            return mDiskCache.put(key, is);
+        }
+
+        public boolean pullRaw(@NonNull String key, @NonNull OutputStream os) {
             InputStreamPipe isPipe = mDiskCache.getInputStreamPipe(key);
             if (isPipe == null) {
                 return false;
