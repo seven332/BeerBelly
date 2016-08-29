@@ -23,7 +23,6 @@ import android.util.Log;
 import com.hippo.streampipe.InputStreamPipe;
 import com.hippo.streampipe.OutputStreamPipe;
 
-import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -34,7 +33,7 @@ public abstract class BeerBelly<V> {
     private static final String TAG = BeerBelly.class.getSimpleName();
 
     @Nullable
-    private MemoryCache<V> mMemoryCache;
+    private LruCache<String, V> mMemoryCache;
     @Nullable
     private DiskCache<V> mDiskCache;
 
@@ -42,7 +41,7 @@ public abstract class BeerBelly<V> {
         params.isValid();
 
         if (params.hasMemoryCache) {
-            initMemoryCache(params.memoryCacheMaxSize);
+            initMemoryCache(params.memoryCacheMaxSize, params.memoryCacheThreadSafe);
         }
 
         if (params.hasDiskCache) {
@@ -50,8 +49,8 @@ public abstract class BeerBelly<V> {
         }
     }
 
-    private void initMemoryCache(int maxSize) {
-        mMemoryCache = new MemoryCache<>(maxSize, this);
+    private void initMemoryCache(int maxSize, boolean threadSafe) {
+        mMemoryCache = LruCache.create(maxSize, new MemoryCacheHelper<>(this), threadSafe);
     }
 
     private void initDiskCache(File cacheDir, int maxSize) {
@@ -332,6 +331,10 @@ public abstract class BeerBelly<V> {
          */
         public int memoryCacheMaxSize = 0;
         /**
+         * {@code true} to thread safe LRU cache.
+         */
+        public boolean memoryCacheThreadSafe = true;
+        /**
          * is disk cache available
          */
         public boolean hasDiskCache = false;
@@ -369,51 +372,46 @@ public abstract class BeerBelly<V> {
         }
     }
 
-    private class MemoryCache<E> extends LruCache<String, E> {
+    private class MemoryCacheHelper<E> implements LruCacheHelper<String, E> {
 
         public BeerBelly<E> mParent;
 
-        public MemoryCache(int maxSize, BeerBelly<E> parent) {
-            super(maxSize);
+        public MemoryCacheHelper(BeerBelly<E> parent) {
             mParent = parent;
         }
 
         @Override
-        protected int sizeOf(String key, E value) {
+        public int sizeOf(String key, E value) {
             return mParent.sizeOf(key, value);
         }
 
         @Override
-        protected void onEntryAdded(String key, E value) {
+        public E create(String key) {
+            return null;
+        }
+
+        @Override
+        public void onEntryAdded(String key, E value) {
             mParent.memoryEntryAdded(key, value);
         }
 
         @Override
-        protected void onEntryRemoved(boolean evicted, String key, E oldValue, E newValue) {
+        public void onEntryRemoved(boolean evicted, String key, E oldValue, E newValue) {
             mParent.memoryEntryRemoved(evicted, key, oldValue, newValue);
         }
     }
 
     private static class DiskCache<E> {
 
-        private static final int IO_BUFFER_SIZE = 8 * 1024;
-
         private final SimpleDiskCache mDiskCache;
         private final BeerBelly<E> mParent;
 
-        private final File mCacheDir;
         private final int mMaxSize;
 
         public DiskCache(File cacheDir, int size, BeerBelly<E> parent) throws IOException {
             mDiskCache = new SimpleDiskCache(cacheDir, size);
             mParent = parent;
-
-            mCacheDir = cacheDir;
             mMaxSize = size;
-        }
-
-        public File getCacheDir() {
-            return mCacheDir;
         }
 
         public int getMaxSize() {
@@ -433,7 +431,7 @@ public abstract class BeerBelly<V> {
         }
 
         public E get(String key) {
-            InputStreamPipe isPipe = mDiskCache.getInputStreamPipe(key);
+            final InputStreamPipe isPipe = mDiskCache.getInputStreamPipe(key);
             if (isPipe == null) {
                 return null;
             } else {
@@ -442,17 +440,14 @@ public abstract class BeerBelly<V> {
         }
 
         public boolean put(String key, E value) {
-            OutputStreamPipe osPipe = mDiskCache.getOutputStreamPipe(key);
-            BufferedOutputStream buffOut = null;
+            final OutputStreamPipe osPipe = mDiskCache.getOutputStreamPipe(key);
             try {
                 osPipe.obtain();
-                OutputStream os = osPipe.open();
-                buffOut = new BufferedOutputStream(os, IO_BUFFER_SIZE);
+                final OutputStream os = osPipe.open();
                 return mParent.write(os, value);
             } catch (IOException e) {
                 return false;
             } finally {
-                Util.closeQuietly(buffOut);
                 osPipe.close();
                 osPipe.release();
             }
@@ -467,13 +462,13 @@ public abstract class BeerBelly<V> {
         }
 
         public boolean pullRaw(@NonNull String key, @NonNull OutputStream os) {
-            InputStreamPipe isPipe = mDiskCache.getInputStreamPipe(key);
+            final InputStreamPipe isPipe = mDiskCache.getInputStreamPipe(key);
             if (isPipe == null) {
                 return false;
             } else {
                 try {
                     isPipe.obtain();
-                    InputStream is = isPipe.open();
+                    final InputStream is = isPipe.open();
                     Util.copy(is, os);
                     return true;
                 } catch (IOException e) {
