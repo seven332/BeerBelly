@@ -323,32 +323,52 @@ public abstract class BeerBelly<V> {
     public static class BeerBellyParams {
 
         /**
-         * is memory cache available
+         * {@code true} to enable memory cache.
+         * <p>
+         * Default value is {@code false}.
          */
         public boolean hasMemoryCache = false;
+
         /**
-         * the maximum number of bytes the memory cache should use to store
+         * The maximum size of memory cache.
+         * It must be greater then 0 if memory cache is enabled.
+         * <p>
+         * Default value is {@code 0}.
          */
         public int memoryCacheMaxSize = 0;
+
         /**
-         * {@code true} to thread safe LRU cache.
+         * {@code true} to create thread safe LRU cache.
+         * <p>
+         * Default value is {@code false}.
          */
-        public boolean memoryCacheThreadSafe = true;
+        public boolean memoryCacheThreadSafe = false;
+
         /**
-         * is disk cache available
+         * {@code true} to enable disk cache.
+         * <p>
+         * Default value is {@code false}.
          */
         public boolean hasDiskCache = false;
+
         /**
-         * the dir to store disk cache
+         * The directory to store disk cache.
+         * It must be non-null if disk cache is enabled.
+         * <p>
+         * Default value is {@code null}.
          */
         public File diskCacheDir = null;
+
         /**
-         * the maximum number of bytes the disk cache should use to store
+         * The maximum size of disk cache.
+         * It must be greater then 0 if disk cache is enabled.
+         * <p>
+         * Default value is {@code 0}.
          */
         public int diskCacheMaxSize = 0;
 
         /**
-         * Check BeerBellyParams is valid
+         * Check whether this BeerBellyParams is valid.
          *
          * @throws IllegalStateException
          */
