@@ -18,8 +18,8 @@ package com.hippo.beerbelly;
 
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.support.v4.util.LruCache;
 import android.util.Log;
+import android.util.LruCache;
 
 import com.hippo.yorozuya.IOUtils;
 import com.hippo.yorozuya.io.InputStreamPipe;
